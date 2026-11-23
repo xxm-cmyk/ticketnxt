@@ -24,7 +24,7 @@ TicketNXT is a highly configurable Discord ticket system. Server managers custom
 - Optional reason modal before ticket creation.
 - Staff claim; after claiming, configured support roles are hidden while the claimant and override roles retain access.
 - Transfer to another member who has an appropriate support or override role.
-- Close ticket, lock the opener, and attach an HTML transcript (up to the most recent 1,000 messages).
+- Close ticket, lock the opener, and attach an HTML transcript (up to the most recent 1,000 messages). Message text requires the optional privileged Message Content intent to be enabled in the Discord Developer Portal and ENABLE_MESSAGE_CONTENT=true in hosting.
 - Automatic close after a configured inactivity period, based on new messages in the ticket.
 
 ## Agreed panel editor
@@ -64,6 +64,7 @@ TicketNXT is a highly configurable Discord ticket system. Server managers custom
 
 - Keep `DISCORD_TOKEN`, `DISCORD_CLIENT_SECRET`, and `SESSION_SECRET` only in hosting environment variables.
 - The bot needs channel visibility, message sending, embed links, attachment, Manage Channels, and Manage Roles permissions.
+- Message Content intent is optional; enable it only when full message text in transcripts is needed.
 - The bot's highest role must be above support and override roles used in ticket permission overwrites.
 - Keep the `data/` directory on persistent hosting storage and excluded from Git.
 - Do not label the system production-ready until Discord interactions and permission behavior have been tested in a real test server.
