@@ -97,7 +97,8 @@ function canOpen(member, option) {
 }
 function canStaff(member, ticket, config) {
   const option = config.panel.options.find(o => o.id === ticket.optionId);
-  return manager(member) || hasAny(member, config.overrideRoleIds) || hasAny(member, option?.supportRoleIds || []);
+  return manager(member) || hasAny(member, ticket.overrideRoleIds || config.overrideRoleIds) ||
+    hasAny(member, ticket.supportRoleIds || option?.supportRoleIds || []);
 }
 async function createTicket(interaction, option, reason) {
   const guild = interaction.guild;
@@ -126,6 +127,8 @@ async function createTicket(interaction, option, reason) {
   const ticket = {
     guildId: guild.id, channelId: channel.id, userId: interaction.user.id, optionId: option.id,
     optionLabel: option.label, number, reason: clean(reason, 1000), claimedBy: null,
+    supportRoleIds: [...option.supportRoleIds], overrideRoleIds: [...config.overrideRoleIds],
+    autoCloseMinutes: Number(option.autoCloseMinutes || 0),
     openedAt: Date.now(), lastActivityAt: Date.now(), closedAt: null
   };
   store.saveTicket(channel.id, ticket);
@@ -189,7 +192,7 @@ async function handleInteraction(interaction) {
     const targetId = interaction.fields.getTextInputValue("target").replace(/[<@!>]/g, "").trim();
     const target = await interaction.guild.members.fetch(targetId).catch(() => null);
     const option = config.panel.options.find(o => o.id === ticket.optionId);
-    if (!target || !(manager(target) || hasAny(target, config.overrideRoleIds) || hasAny(target, option?.supportRoleIds || [])))
+    if (!target || !(manager(target) || hasAny(target, ticket.overrideRoleIds || config.overrideRoleIds) || hasAny(target, ticket.supportRoleIds || option?.supportRoleIds || [])))
       return interaction.reply({ content: "لم أجد عضواً لديه رتبة دعم مناسبة. تحقق من المعرّف والرتب.", flags: MessageFlags.Ephemeral });
     const channel = await interaction.guild.channels.fetch(channelId);
     if (ticket.claimedBy) await channel.permissionOverwrites.delete(ticket.claimedBy).catch(() => {});
@@ -223,7 +226,7 @@ async function handleInteraction(interaction) {
   if (ticket.closedAt) return interaction.reply({ content: "هذه التذكرة مغلقة بالفعل.", flags: MessageFlags.Ephemeral });
   const config = configFor(interaction.guildId);
   const option = config.panel.options.find(o => o.id === ticket.optionId);
-  const roles = option?.supportRoleIds || [];
+  const roles = ticket.supportRoleIds || option?.supportRoleIds || [];
   const staff = canStaff(interaction.member, ticket, config);
   if (interaction.customId === "tnxt:close") {
     if (interaction.user.id !== ticket.userId && !staff) return interaction.reply({ content: "ليس لديك صلاحية إغلاق هذه التذكرة.", flags: MessageFlags.Ephemeral });
@@ -236,7 +239,7 @@ async function handleInteraction(interaction) {
     if (ticket.claimedBy) return interaction.reply({ content: "التذكرة مستلمة بالفعل.", flags: MessageFlags.Ephemeral });
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     for (const roleId of roles) await interaction.channel.permissionOverwrites.edit(roleId, { ViewChannel: false }).catch(() => {});
-    for (const roleId of config.overrideRoleIds) await interaction.channel.permissionOverwrites.edit(roleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(() => {});
+    for (const roleId of (ticket.overrideRoleIds || config.overrideRoleIds)) await interaction.channel.permissionOverwrites.edit(roleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(() => {});
     await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
     store.updateTicket(interaction.channelId, { claimedBy: interaction.user.id });
     await interaction.channel.send({ content: "تم استلام التذكرة بواسطة <@" + interaction.user.id + ">.", allowedMentions: { users: [interaction.user.id] } });
@@ -329,8 +332,7 @@ function registerTicketSystem(app, client, requireLogin) {
     try {
       for (const ticket of Object.values(store.readState().tickets)) {
         if (ticket.closedAt) continue;
-        const option = configFor(ticket.guildId).panel.options.find(o => o.id === ticket.optionId);
-        const minutes = Number(option?.autoCloseMinutes || 0);
+        const minutes = Number(ticket.autoCloseMinutes || 0);
         if (!minutes || Date.now() - Number(ticket.lastActivityAt || ticket.openedAt) < minutes * 60000) continue;
         const guild = await client.guilds.fetch(ticket.guildId);
         const channel = await guild.channels.fetch(ticket.channelId).catch(() => null);
