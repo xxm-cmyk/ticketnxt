@@ -51,7 +51,7 @@ function normalizePanelComponents(input, guild, options) {
   if (source.length > 39) throw new Error("وصلت للحد الأقصى لمكونات الرسالة.");
   let textTotal = 0;
   const optionIds = new Set(options.map(o => o.id));
-  return source.map(item => {
+  const normalized = source.map(item => {
     const type = String(item?.type || "");
     if (type === "text") {
       const content = String(item.content || "").trim().slice(0, 4000);
@@ -103,7 +103,9 @@ function normalizePanelComponents(input, guild, options) {
       return { id: clean(item.id || crypto.randomUUID(), 40), type, label, emoji, style, optionId };
     }
     throw new Error("نوع مكوّن غير مدعوم: " + type);
-  }).map((item, index) => ({ ...item, order: index }));
+  });
+  if (textTotal > 4000) throw new Error("مجموع نصوص الرسالة يتجاوز حد Discord البالغ 4000 حرف.");
+  return normalized.map((item, index) => ({ ...item, order: index }));
 }
 function validateConfig(input, guild) {
   const p = input?.panel || {};
@@ -170,15 +172,29 @@ function buildV2Component(item) {
 function panelPayload(config) {
   const p = config.panel;
   const configured = Array.isArray(p.components) ? p.components : [];
-  const body = configured.length
-    ? configured.map(buildV2Component).filter(Boolean)
-    : [
-        { type: 10, content: "مركز الدعم" + (p.description ? "\n" + p.description : "") },
-        { type: 1, components: p.options.slice(0, 5).map(o => ({
-          type: 2, style: 1, custom_id: "tnxt:open:" + o.id, label: o.label,
-          ...(o.emoji ? { emoji: emojiObject(o.emoji) } : {})
-        })) }
-      ];
+  const body = [];
+  if (configured.length) {
+    for (let i = 0; i < configured.length;) {
+      if (configured[i].type === "button") {
+        const group = [];
+        while (i < configured.length && configured[i].type === "button" && group.length < 5) group.push(configured[i++]);
+        body.push({ type: 1, components: group.map(item => ({
+          type: 2, style: item.style,
+          ...(item.style === 5 ? { url: item.url } : { custom_id: "tnxt:open:" + item.optionId }),
+          ...(item.label ? { label: item.label } : {}),
+          ...(item.emoji ? { emoji: emojiObject(item.emoji) } : {})
+        })) });
+      } else {
+        body.push(buildV2Component(configured[i++]));
+      }
+    }
+  } else {
+    body.push({ type: 10, content: "مركز الدعم" + (p.description ? "\n" + p.description : "") });
+    body.push({ type: 1, components: p.options.slice(0, 5).map(o => ({
+      type: 2, style: 1, custom_id: "tnxt:open:" + o.id, label: o.label,
+      ...(o.emoji ? { emoji: emojiObject(o.emoji) } : {})
+    })) });
+  }
   return { flags: MessageFlags.IsComponentsV2, components: [{ type: 17, components: body }], allowedMentions: { parse: [] } };
 }
 function ticketRows() {
@@ -228,7 +244,7 @@ async function createTicket(interaction, option, reason) {
     openedAt: Date.now(), lastActivityAt: Date.now(), closedAt: null
   };
   store.saveTicket(channel.id, ticket);
-  const embed = new EmbedBuilder().setColor("#5865F2").setTitle("تذكرة #" + number + " — " + option.label)
+  const embed = new EmbedBuilder().setTitle("تذكرة #" + number + " — " + option.label)
     .setDescription("أهلاً <@" + interaction.user.id + ">، وصلنا طلبك وسيقوم فريق الدعم بالرد عليك.")
     .addFields(
       { name: "صاحب التذكرة", value: "<@" + interaction.user.id + ">", inline: true },
