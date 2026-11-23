@@ -4,6 +4,8 @@ const crypto = require("node:crypto");
 const express = require("express");
 const session = require("express-session");
 const { Client, GatewayIntentBits, Events, PermissionsBitField } = require("discord.js");
+const FileSessionStore = require("./src/session-store");
+const { registerTicketSystem } = require("./src/ticket-system");
 
 const app = express();
 const PORT = Number(process.env.SERVER_PORT || process.env.PORT || 3000);
@@ -11,7 +13,7 @@ const REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || "https://ticketnxt.apps
 const OAUTH_CONFIGURED = Boolean(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET);
 let botReady = false;
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "32kb" }));
 app.use(session({
@@ -107,6 +109,8 @@ app.post("/api/select-guild", requireLogin, (req, res) => {
   req.session.selectedGuildId = id;
   req.session.save(err => err ? res.status(500).json({ error: "session_save_failed" }) : res.json({ ok: true, selectedGuildId: id }));
 });
+registerTicketSystem(app, client, requireLogin);
+
 app.post("/auth/logout", (req, res) => req.session.destroy(() => {
   res.clearCookie("ticketnxt.sid", { httpOnly: true, sameSite: "lax", secure: true });
   res.json({ ok: true });
