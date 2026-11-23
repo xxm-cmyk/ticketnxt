@@ -23,6 +23,7 @@ app.use(express.json({ limit: "32kb" }));
 app.use(session({
   name: "ticketnxt.sid",
   secret: process.env.SESSION_SECRET || crypto.randomBytes(48).toString("hex"),
+  store: new FileSessionStore(path.join(__dirname, "data", "sessions.json")),
   resave: false,
   saveUninitialized: false,
   cookie: { httpOnly: true, secure: true, sameSite: "lax", maxAge: 7 * 24 * 60 * 60 * 1000 },
