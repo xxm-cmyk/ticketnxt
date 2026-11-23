@@ -16,7 +16,17 @@ const hasPermission = (member, flag) => {
   } catch { return false; }
 };
 const manager = member => hasPermission(member, PermissionFlagsBits.ManageGuild) || hasPermission(member, PermissionFlagsBits.Administrator);
-const configFor = id => store.getGuild(id) || store.defaultGuildConfig();
+const configFor = id => {
+  const defaults = store.defaultGuildConfig();
+  const saved = store.getGuild(id);
+  if (!saved) return defaults;
+  return {
+    ...defaults, ...saved,
+    panel: { ...defaults.panel, ...(saved.panel || {}), components: Array.isArray(saved.panel?.components) ? saved.panel.components : [] },
+    transcriptChannelId: saved.transcriptChannelId || null,
+    overrideRoleIds: Array.isArray(saved.overrideRoleIds) ? saved.overrideRoleIds : []
+  };
+};
 
 function normalizeEmoji(value, guild) {
   const raw = clean(value, 100);
@@ -408,7 +418,7 @@ function registerTicketSystem(app, client, requireLogin) {
       const id = req.session.selectedGuildId;
       if (!id || !(req.session.manageableGuilds || []).some(g => g.id === id)) return res.status(403).json({ error: "guild_not_selected" });
       const guild = await client.guilds.fetch(id);
-      await Promise.all([guild.roles.fetch(), guild.channels.fetch(), guild.members.fetchMe()]);
+      await Promise.all([guild.roles.fetch(), guild.channels.fetch(), guild.members.fetchMe(), guild.emojis.fetch()]);
       const member = await guild.members.fetch(req.session.discordUser.id);
       if (!manager(member)) return res.status(403).json({ error: "manage_guild_required" });
       const previous = configFor(id);
