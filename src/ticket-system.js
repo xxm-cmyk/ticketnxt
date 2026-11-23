@@ -355,4 +355,4 @@ function registerTicketSystem(app, client, requireLogin) {
   }, 60_000);
   timer.unref();
 }
-module.exports = { registerTicketSystem };
+module.exports = { registerTicketSystem, panelPayload, validateConfig };
