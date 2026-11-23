@@ -440,7 +440,7 @@ async function handleInteraction(interaction) {
     if (!staff) return interaction.reply({ content: "إغلاق التذكرة مخصص للإداريين وفريق الدعم.", flags: MessageFlags.Ephemeral });
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await closeTicket(interaction.channel, ticket, interaction.user.id);
-    return interaction.editReply({ content: "تم إرسال نسخة المحادثة في الخاص وقناة السجلات وحذف قناة التكت." });
+    return interaction.editReply({ content: "تم إغلاق التكت وحفظ المحادثة في أرشيف لوحة TicketNXT." });
   }
   if (!staff) return interaction.reply({ content: "هذا الإجراء مخصص لفريق الدعم.", flags: MessageFlags.Ephemeral });
   if (interaction.customId === "tnxt:claim") {
