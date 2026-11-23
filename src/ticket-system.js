@@ -118,7 +118,7 @@ async function createTicket(interaction, option, reason) {
   const username = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 18) || "member";
   const raw = option.channelNameTemplate.replace(/\{number\}/g, String(number)).replace(/\{username\}/g, username).replace(/\{user\}/g, username);
   const channelName = raw.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 90) || "ticket-" + number;
-  const allow = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory];
+  const allow = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.EmbedLinks];
   const overwrites = [
     { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
     { id: interaction.user.id, allow: [...allow, PermissionFlagsBits.AttachFiles] },
@@ -165,9 +165,10 @@ async function transcriptFile(channel, ticket) {
       '</header><p>' + escapeHtml(m.content || (m.embeds.length ? "[رسالة تحتوي على Embed]" : "")) +
       (links ? '<div>' + links + '</div>' : "") + '</p></article>';
   }).join("\n");
+  const contentNotice = process.env.ENABLE_MESSAGE_CONTENT === "true" ? "" : '<p><strong>تنبيه:</strong> محتوى الرسائل غير مضمّن. فعّل Message Content Intent في Discord Developer Portal ثم ENABLE_MESSAGE_CONTENT في الاستضافة لإظهار نصوص الرسائل.</p>';
   const html = '<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><title>Transcript #' + ticket.number +
     '</title><style>body{font:15px system-ui;background:#11131a;color:#eee;max-width:900px;margin:35px auto;padding:0 18px}article{padding:14px;border:1px solid #303443;border-radius:10px;margin:10px 0;overflow-wrap:anywhere}header{color:#9ca7ff;font-weight:bold}p{white-space:pre-wrap}</style><h1>TicketNXT — Transcript #' +
-    ticket.number + '</h1><p>القسم: ' + escapeHtml(ticket.optionLabel) + ' · العضو: ' + escapeHtml(ticket.userId) + '</p>' + rows + '</html>';
+    ticket.number + '</h1><p>القسم: ' + escapeHtml(ticket.optionLabel) + ' · العضو: ' + escapeHtml(ticket.userId) + '</p>' + contentNotice + rows + '</html>';
   return new AttachmentBuilder(Buffer.from(html, "utf8"), { name: "ticket-" + ticket.number + "-transcript.html" });
 }
 async function closeTicket(channel, ticket, actorId, automatic = false) {
@@ -334,6 +335,10 @@ function registerTicketSystem(app, client, requireLogin) {
     if (!message.guild || message.author.bot) return;
     const ticket = store.getTicket(message.channelId);
     if (ticket && !ticket.closedAt) store.updateTicket(message.channelId, { lastActivityAt: Date.now() });
+  });
+  client.on(Events.ChannelDelete, channel => {
+    const ticket = store.getTicket(channel.id);
+    if (ticket && !ticket.closedAt) store.updateTicket(channel.id, { closedAt: Date.now(), closedBy: "channel-deleted" });
   });
   const timer = setInterval(async () => {
     try {
