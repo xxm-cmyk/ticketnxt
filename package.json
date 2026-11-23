@@ -3,16 +3,12 @@
   "version": "0.1.0",
   "description": "TicketNXT Discord bot and web dashboard",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js",
-    "dev": "node --watch index.js"
-  },
-  "engines": {
-    "node": ">=20.0.0"
-  },
+  "scripts": { "start": "node index.js", "dev": "node --watch index.js" },
+  "engines": { "node": ">=20.0.0" },
   "dependencies": {
     "discord.js": "^14.22.1",
     "dotenv": "^16.6.1",
-    "express": "^5.1.0"
+    "express": "^5.1.0",
+    "express-session": "^1.18.2"
   }
 }
