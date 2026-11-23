@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101116">
+  <title>TicketNXT — لوحة التحكم</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{color-scheme:dark;--bg:#101116;--panel:#171920;--panel2:#1d2029;--line:#292d38;--muted:#9298a8;--text:#f4f5f8;--accent:#8794ff;--accent2:#6676ee}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 80% -20%,#28305a55,transparent 38%),var(--bg);color:var(--text);font-family:Tajawal,system-ui,sans-serif;min-height:100vh}
+    button{font:inherit;cursor:pointer}.layout{display:grid;grid-template-columns:250px 1fr;min-height:100vh}
+    aside{border-left:1px solid var(--line);background:#12141bd9;padding:26px 18px;display:flex;flex-direction:column;gap:32px}
+    .brand{display:flex;align-items:center;gap:12px;padding:0 7px}.brand img{width:44px;height:44px;border-radius:14px;object-fit:cover}.brand strong{font-size:20px;letter-spacing:.3px}.brand small{display:block;color:var(--muted);font-size:12px;margin-top:1px}
+    .nav-label{color:#707789;font-size:12px;font-weight:700;padding:0 12px;margin-bottom:10px}.nav{display:grid;gap:6px}.nav button{border:0;background:transparent;color:#aeb3c1;text-align:right;padding:12px 13px;border-radius:11px;display:flex;align-items:center;gap:12px;transition:.2s}.nav button:hover{background:#ffffff09;color:white}.nav button.active{background:#8794ff1c;color:#b8c0ff;box-shadow:inset -2px 0 var(--accent)}.nav .ico{width:20px;text-align:center;font-size:17px}
+    .side-bottom{margin-top:auto;border:1px solid var(--line);background:var(--panel);border-radius:14px;padding:14px}.side-bottom small{color:var(--muted)}.side-bottom strong{display:block;margin:5px 0 0}
+    main{padding:34px clamp(20px,4vw,58px);max-width:1500px;width:100%;margin:auto}.top{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-bottom:34px}.eyebrow{color:#a5adff;font-size:13px;font-weight:700}.top h1{font-size:30px;margin:5px 0 0}.profile{display:flex;align-items:center;gap:10px;border:1px solid var(--line);background:var(--panel);padding:9px 14px;border-radius:12px;color:#c6cad5}
+    .welcome{border:1px solid #343b63;background:linear-gradient(110deg,#202743,#1a1d2a 70%);border-radius:20px;padding:27px 30px;display:flex;justify-content:space-between;align-items:center;gap:20px;overflow:hidden;position:relative}.welcome:after{content:"";position:absolute;width:240px;height:240px;border:1px solid #8994ff22;border-radius:50%;left:8%;top:-150px;box-shadow:0 0 0 30px #8994ff09,0 0 0 60px #8994ff06}.welcome h2{font-size:25px;margin:0 0 7px}.welcome p{color:#b0b7d0;margin:0;font-size:15px}.status{display:flex;align-items:center;gap:9px;border:1px solid #ffffff1a;background:#10131c88;padding:10px 14px;border-radius:30px;white-space:nowrap;font-size:13px}.dot{width:8px;height:8px;border-radius:50%;background:#e5b65c;box-shadow:0 0 12px currentColor}.dot.online{background:#55d69a}.section-head{display:flex;justify-content:space-between;align-items:center;margin:30px 0 15px}.section-head h3{margin:0;font-size:19px}.section-head span{font-size:13px;color:var(--muted)}
+    .cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:15px}.card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:19px}.card-top{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:13px}.card-icon{width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:#8794ff19;color:#aab3ff;font-size:18px}.metric{font-size:26px;font-weight:800;margin-top:13px}.sub{font-size:12px;color:var(--muted);margin-top:2px}
+    .content-grid{display:grid;grid-template-columns:1.3fr 1fr;gap:15px;margin-top:15px}.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:21px}.panel h3{font-size:17px;margin:0 0 6px}.panel p{color:var(--muted);font-size:13px;margin:0}.empty{margin-top:20px;border:1px dashed #343947;border-radius:12px;padding:22px;text-align:center;color:#aab0bf}.empty b{display:block;color:#e6e8ef;margin-bottom:5px}.quick{display:grid;gap:10px;margin-top:18px}.quick button{background:var(--panel2);border:1px solid var(--line);color:#e5e7ef;text-align:right;padding:13px 14px;border-radius:11px}.quick button:hover{border-color:#6978eb;color:#c5cbff}
+    .view{display:none}.view.active{display:block}.notice{margin-top:18px;padding:12px 15px;border-radius:11px;background:#8794ff12;border:1px solid #8794ff2b;color:#c0c7ff;font-size:13px}
+    @media(max-width:850px){.layout{grid-template-columns:1fr}aside{border-left:0;border-bottom:1px solid var(--line);padding:14px 16px;gap:14px}.brand{padding:0}.nav{display:flex;overflow:auto}.nav-label,.side-bottom{display:none}.nav button{white-space:nowrap;padding:9px 12px}main{padding-top:23px}.cards{grid-template-columns:1fr 1fr}.content-grid{grid-template-columns:1fr}}
+    @media(max-width:520px){.top{align-items:flex-start;flex-direction:column}.top h1{font-size:25px}.welcome{align-items:flex-start;flex-direction:column;padding:22px}.cards{grid-template-columns:1fr}.profile{display:none}}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <div class="brand"><img src="https://cdn.discordapp.com/icons/1260838143276355608/d6d3fa730739dd1f29b9a38dea305978.webp?size=256" alt="TicketNXT"><div><strong>TicketNXT</strong><small>لوحة إدارة البوت</small></div></div>
+    <div><div class="nav-label">القائمة الرئيسية</div><nav class="nav">
+      <button class="active" data-view="overview"><span class="ico">▦</span>نظرة عامة</button>
+      <button data-view="tickets"><span class="ico">▤</span>نظام التكت</button>
+      <button data-view="settings"><span class="ico">⚙</span>الإعدادات</button>
+    </nav></div>
+    <div class="side-bottom"><small>إصدار اللوحة</small><strong>v0.1.0 — نسخة أولية</strong></div>
+  </aside>
+  <main>
+    <header class="top"><div><div class="eyebrow">TICKETNXT / CONTROL CENTER</div><h1 id="pageTitle">نظرة عامة</h1></div><div class="profile">◉ <span>لوحة التحكم</span></div></header>
+    <section class="view active" id="overview">
+      <div class="welcome"><div><h2>مرحباً بك في TicketNXT</h2><p>تحكم بإعدادات بوت التكت من مكان واحد.</p></div><div class="status"><span class="dot" id="statusDot"></span><span id="botStatus">جارٍ التحقق من حالة البوت...</span></div></div>
+      <div class="section-head"><h3>ملخص البوت</h3><span>تحديث مباشر لحالة الاتصال</span></div>
+      <div class="cards">
+        <div class="card"><div class="card-top"><span>حالة البوت</span><span class="card-icon">◉</span></div><div class="metric" id="botMetric">...</div><div class="sub">الاتصال مع Discord</div></div>
+        <div class="card"><div class="card-top"><span>نظام التكت</span><span class="card-icon">▤</span></div><div class="metric">غير مُعدّ</div><div class="sub">بانتظار إعداد النظام</div></div>
+        <div class="card"><div class="card-top"><span>السيرفرات</span><span class="card-icon">⌂</span></div><div class="metric">—</div><div class="sub">سيظهر العدد بعد ربط لوحة Discord</div></div>
+      </div>
+      <div class="content-grid">
+        <div class="panel"><h3>النشاط الأخير</h3><p>آخر تحديثات البوت واللوحة.</p><div class="empty"><b>ما فيه نشاط حتى الآن</b>سيظهر سجل الأحداث بعد بناء وظائف اللوحة.</div></div>
+        <div class="panel"><h3>اختصارات</h3><p>انتقل مباشرة إلى القسم المطلوب.</p><div class="quick"><button data-go="tickets">إعداد نظام التكت ←</button><button data-go="settings">إعدادات اللوحة ←</button></div></div>
+      </div>
+      <div class="notice">هذه النسخة هي الهيكل الأولي للوحة. تسجيل دخول Discord وربط إعدادات التكت سيتم إضافتهما في الخطوات القادمة.</div>
+    </section>
+    <section class="view" id="tickets"><div class="panel"><h3>نظام التكت</h3><p>إعدادات فتح التذاكر وإدارتها.</p><div class="empty"><b>قسم نظام التكت قيد التجهيز</b>بنضيف خيارات التصنيفات والرتب ورسائل فتح التكت هنا بعد تحديد تصميم النظام.</div></div></section>
+    <section class="view" id="settings"><div class="panel"><h3>الإعدادات</h3><p>إعدادات عامة للوحة والبوت.</p><div class="empty"><b>الإعدادات قيد التجهيز</b>سيتم ربط الإعدادات الفعلية بالبوت لاحقاً.</div></div></section>
+  </main>
+</div>
+<script>
+  const buttons=[...document.querySelectorAll('[data-view]')];
+  function showView(name){buttons.forEach(b=>b.classList.toggle('active',b.dataset.view===name));document.querySelectorAll('.view').forEach(v=>v.classList.toggle('active',v.id===name));document.getElementById('pageTitle').textContent=({overview:'نظرة عامة',tickets:'نظام التكت',settings:'الإعدادات'})[name]||'نظرة عامة'}
+  buttons.forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));
+  document.querySelectorAll('[data-go]').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.go)));
+  async function refreshStatus(){try{const r=await fetch('/api/status');const data=await r.json();const online=data.bot==='online';document.getElementById('botStatus').textContent=online?'البوت متصل':'البوت غير متصل';document.getElementById('botMetric').textContent=online?'متصل':'غير متصل';document.getElementById('statusDot').classList.toggle('online',online)}catch{document.getElementById('botStatus').textContent='تعذر جلب الحالة';document.getElementById('botMetric').textContent='—'}}
+  refreshStatus();setInterval(refreshStatus,15000);
+</script>
+</body>
+</html>
