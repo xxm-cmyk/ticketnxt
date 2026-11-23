@@ -46,7 +46,12 @@ function validateConfig(input, guild) {
       optionDisplay: p.optionDisplay === "select" ? "select" : "buttons",
       imageUrl, accentColor: color, options: normalizedOptions
     },
-    overrideRoleIds: [...new Set((input.overrideRoleIds || []).map(String))].filter(validRole).slice(0, 10)
+    overrideRoleIds: (() => {
+      const ids = [...new Set((input.overrideRoleIds || []).map(String))].filter(validRole).slice(0, 10);
+      const botHighest = guild.members.me?.roles.highest.position || 0;
+      if (ids.some(id => guild.roles.cache.get(id).position >= botHighest)) throw new Error("ارفع رتبة البوت فوق رتب التجاوز المختارة.");
+      return ids;
+    })()
   };
 }
 function rowsForOptions(options) {
@@ -272,7 +277,7 @@ function registerTicketSystem(app, client, requireLogin) {
       const id = req.session.selectedGuildId;
       if (!id || !(req.session.manageableGuilds || []).some(g => g.id === id)) return res.status(403).json({ error: "guild_not_selected" });
       const guild = await client.guilds.fetch(id);
-      await Promise.all([guild.roles.fetch(), guild.channels.fetch()]);
+      await Promise.all([guild.roles.fetch(), guild.channels.fetch(), guild.members.fetchMe()]);
       const member = await guild.members.fetch(req.session.discordUser.id);
       if (!manager(member)) return res.status(403).json({ error: "manage_guild_required" });
       const previous = configFor(id);
