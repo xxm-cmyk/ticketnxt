@@ -460,6 +460,65 @@ function registerTicketSystem(app, client, requireLogin) {
       });
     } catch (error) { console.error("Ticket meta failed:", error); res.status(500).json({ error: "meta_load_failed" }); }
   });
+  app.get("/api/ticket/transcripts", requireLogin, async (req, res) => {
+    try {
+      const id = req.session.selectedGuildId;
+      if (!id || !(req.session.manageableGuilds || []).some(g => g.id === id)) return res.status(403).json({ error: "guild_not_selected" });
+      const guild = await client.guilds.fetch(id);
+      const member = await guild.members.fetch(req.session.discordUser.id);
+      if (!manager(member)) return res.status(403).json({ error: "manage_guild_required" });
+      const tickets = Object.values(store.readState().tickets)
+        .filter(ticket => ticket.guildId === id && ticket.transcript && Array.isArray(ticket.transcript.messages))
+        .sort((a, b) => Number(b.closedAt || b.transcript.savedAt || 0) - Number(a.closedAt || a.transcript.savedAt || 0))
+        .map(ticket => ({
+          channelId: ticket.channelId,
+          number: ticket.number,
+          optionLabel: ticket.optionLabel,
+          userId: ticket.userId,
+          reason: ticket.reason || "",
+          openedAt: ticket.openedAt || null,
+          closedAt: ticket.closedAt || null,
+          closedBy: ticket.closedBy || null,
+          messageCount: ticket.transcript.messages.length,
+          savedAt: ticket.transcript.savedAt || null
+        }));
+      res.json({ ok: true, transcripts: tickets });
+    } catch (error) {
+      console.error("Transcript list failed:", error);
+      res.status(500).json({ error: "transcript_list_failed" });
+    }
+  });
+  app.get("/api/ticket/transcripts/:channelId", requireLogin, async (req, res) => {
+    try {
+      const id = req.session.selectedGuildId;
+      if (!id || !(req.session.manageableGuilds || []).some(g => g.id === id)) return res.status(403).json({ error: "guild_not_selected" });
+      const guild = await client.guilds.fetch(id);
+      const member = await guild.members.fetch(req.session.discordUser.id);
+      if (!manager(member)) return res.status(403).json({ error: "manage_guild_required" });
+      const ticket = store.getTicket(String(req.params.channelId));
+      if (!ticket || ticket.guildId !== id || !ticket.transcript || !Array.isArray(ticket.transcript.messages)) {
+        return res.status(404).json({ error: "transcript_not_found" });
+      }
+      res.json({
+        ok: true,
+        ticket: {
+          channelId: ticket.channelId,
+          number: ticket.number,
+          optionLabel: ticket.optionLabel,
+          userId: ticket.userId,
+          reason: ticket.reason || "",
+          openedAt: ticket.openedAt || null,
+          closedAt: ticket.closedAt || null,
+          closedBy: ticket.closedBy || null,
+          savedAt: ticket.transcript.savedAt || null
+        },
+        messages: ticket.transcript.messages
+      });
+    } catch (error) {
+      console.error("Transcript detail failed:", error);
+      res.status(500).json({ error: "transcript_load_failed" });
+    }
+  });
   app.put("/api/ticket/config", requireLogin, async (req, res) => {
     try {
       const id = req.session.selectedGuildId;
