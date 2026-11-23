@@ -8,8 +8,14 @@ const store = require("./storage");
 
 const clean = (v, n = 100) => String(v ?? "").trim().slice(0, n);
 const escapeHtml = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const hasAny = (member, ids = []) => ids.some(id => member.roles.cache.has(id));
-const manager = member => member.permissions.has(PermissionFlagsBits.ManageGuild) || member.permissions.has(PermissionFlagsBits.Administrator);
+const hasAny = (member, ids = []) => ids.some(id => member?.roles?.cache?.has(id) || (Array.isArray(member?.roles) && member.roles.includes(id)));
+const hasPermission = (member, flag) => {
+  try {
+    if (member?.permissions?.has) return member.permissions.has(flag);
+    return (BigInt(member?.permissions || "0") & flag) === flag;
+  } catch { return false; }
+};
+const manager = member => hasPermission(member, PermissionFlagsBits.ManageGuild) || hasPermission(member, PermissionFlagsBits.Administrator);
 const configFor = id => store.getGuild(id) || store.defaultGuildConfig();
 
 function validateConfig(input, guild) {
