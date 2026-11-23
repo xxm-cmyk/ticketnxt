@@ -21,8 +21,10 @@ function validateConfig(input, guild) {
     const label = clean(item.label, 80);
     if (!label) throw new Error("اسم كل خيار مطلوب.");
     const supportRoleIds = [...new Set((item.supportRoleIds || []).map(String))].filter(validRole).slice(0, 10);
+    const botHighest = guild.members.me?.roles.highest.position || 0;
+    if (supportRoleIds.some(id => guild.roles.cache.get(id).position >= botHighest)) throw new Error("ارفع رتبة البوت فوق رتب الدعم المختارة.");
     const allowedRoleIds = [...new Set((item.allowedRoleIds || []).map(String))].filter(validRole).slice(0, 10);
-    const categoryId = validRole(item.categoryId) && guild.channels.cache.get(String(item.categoryId))?.type === ChannelType.GuildCategory ? String(item.categoryId) : null;
+    const categoryId = guild.channels.cache.get(String(item.categoryId || ""))?.type === ChannelType.GuildCategory ? String(item.categoryId) : null;
     return {
       id: /^[a-zA-Z0-9_-]{1,24}$/.test(String(item.id || "")) ? String(item.id) : crypto.randomBytes(6).toString("hex"),
       label, description: clean(item.description, 100), emoji: clean(item.emoji, 80),
@@ -186,6 +188,7 @@ async function handleInteraction(interaction) {
       return interaction.reply({ content: "لم أجد عضواً لديه رتبة دعم مناسبة. تحقق من المعرّف والرتب.", flags: MessageFlags.Ephemeral });
     const channel = await interaction.guild.channels.fetch(channelId);
     if (ticket.claimedBy) await channel.permissionOverwrites.delete(ticket.claimedBy).catch(() => {});
+    if (ticket.claimedBy === ticket.userId) await channel.permissionOverwrites.edit(ticket.userId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(() => {});
     await channel.permissionOverwrites.edit(target.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
     store.updateTicket(channelId, { claimedBy: target.id });
     await interaction.reply({ content: "تم تحويل التذكرة إلى <@" + target.id + ">.", flags: MessageFlags.Ephemeral });
@@ -307,8 +310,10 @@ function registerTicketSystem(app, client, requireLogin) {
   });
   client.on(Events.InteractionCreate, interaction => handleInteraction(interaction).catch(async error => {
     console.error("Ticket interaction failed:", error);
-    if (interaction.isRepliable() && !interaction.replied && !interaction.deferred)
-      await interaction.reply({ content: "حدث خطأ أثناء تنفيذ العملية. حاول مرة أخرى.", flags: MessageFlags.Ephemeral }).catch(() => {});
+    if (interaction.isRepliable()) {
+      if (interaction.deferred) await interaction.editReply({ content: "حدث خطأ أثناء تنفيذ العملية. تحقق من صلاحيات البوت وحاول مرة أخرى." }).catch(() => {});
+      else if (!interaction.replied) await interaction.reply({ content: "حدث خطأ أثناء تنفيذ العملية. تحقق من صلاحيات البوت وحاول مرة أخرى.", flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
   }));
   client.on(Events.MessageCreate, message => {
     if (!message.guild || message.author.bot) return;
