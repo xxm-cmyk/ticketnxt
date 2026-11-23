@@ -1,7 +1,7 @@
 const {
   ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
   EmbedBuilder, ModalBuilder, TextInputBuilder, TextInputStyle,
-  AttachmentBuilder, ChannelType, PermissionFlagsBits, MessageFlags, Events
+  ChannelType, PermissionFlagsBits, MessageFlags, Events
 } = require("discord.js");
 const crypto = require("node:crypto");
 const store = require("./storage");
@@ -271,7 +271,7 @@ async function createTicket(interaction, option, reason) {
   await channel.send({ content: "<@" + interaction.user.id + ">", embeds: [embed], components: ticketRows(), allowedMentions: { users: [interaction.user.id] } });
   await interaction.editReply({ content: "تم إنشاء تذكرتك: " + channel.toString() });
 }
-async function transcriptFile(channel, ticket) {
+async function captureTranscript(channel, ticket) {
   const messages = [];
   let before;
   for (let i = 0; i < 10; i++) {
@@ -282,16 +282,31 @@ async function transcriptFile(channel, ticket) {
     if (page.size < 100) break;
   }
   messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
-  const rows = messages.map(m => {
-    const links = [...m.attachments.values()].map(a => '<a href="' + escapeHtml(a.url) + '">مرفق</a>').join(" · ");
-    return '<article><header>' + escapeHtml(m.author?.tag || "مستخدم") + ' — ' + escapeHtml(new Date(m.createdTimestamp).toLocaleString("ar-SA")) +
-      '</header><p>' + escapeHtml(m.content || (m.embeds.length ? "[رسالة تحتوي على Embed]" : "")) +
-      (links ? '<div>' + links + '</div>' : "") + '</p></article>';
-  }).join("\n");
-  const html = '<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><title>Transcript #' + ticket.number +
-    '</title><style>body{font:15px system-ui;background:#11131a;color:#eee;max-width:900px;margin:35px auto;padding:0 18px}article{padding:14px;border:1px solid #303443;border-radius:10px;margin:10px 0;overflow-wrap:anywhere}header{color:#9ca7ff;font-weight:bold}p{white-space:pre-wrap}</style><h1>TicketNXT — Transcript #' +
-    ticket.number + '</h1><p>القسم: ' + escapeHtml(ticket.optionLabel) + ' · العضو: ' + escapeHtml(ticket.userId) + '</p>' + rows + '</html>';
-  return new AttachmentBuilder(Buffer.from(html, "utf8"), { name: "ticket-" + ticket.number + "-transcript.html" });
+  const snapshot = {
+    version: 1,
+    savedAt: Date.now(),
+    messages: messages.map(m => ({
+      id: m.id,
+      authorId: m.author?.id || null,
+      authorName: m.member?.displayName || m.author?.globalName || m.author?.username || "مستخدم",
+      avatarUrl: m.author?.displayAvatarURL?.({ extension: "png", size: 64 }) || null,
+      bot: Boolean(m.author?.bot),
+      content: String(m.content || "").slice(0, 10000),
+      timestamp: m.createdTimestamp,
+      attachments: [...m.attachments.values()].map(a => ({
+        name: clean(a.name || "مرفق", 180),
+        url: /^https:\/\//i.test(a.url || "") ? a.url : null,
+        contentType: clean(a.contentType || "", 100) || null
+      })).filter(a => a.url),
+      embeds: (m.embeds || []).slice(0, 5).map(e => ({
+        title: clean(e.title || "", 250),
+        description: clean(e.description || "", 1500),
+        url: /^https:\/\//i.test(e.url || "") ? e.url : null
+      }))
+    }))
+  };
+  store.updateTicket(channel.id, { transcript: snapshot });
+  return snapshot;
 }
 async function closeTicket(channel, ticket, actorId, automatic = false) {
   const key = channel.id;
@@ -302,44 +317,47 @@ async function closeTicket(channel, ticket, actorId, automatic = false) {
     if (current.closedAt) return { closed: true };
     if (!current.closingAt) {
       store.updateTicket(channel.id, { closingAt: Date.now(), closingBy: actorId || "system" });
-      await channel.send({ content: "سيتم إغلاق التذكرة خلال 10 ثوانٍ وحفظ نسخة من المحادثة.", allowedMentions: { parse: [] } });
+      await channel.send({ content: "سيتم إغلاق التذكرة خلال 10 ثوانٍ وحفظ المحادثة في لوحة TicketNXT.", allowedMentions: { parse: [] } });
       await new Promise(resolve => setTimeout(resolve, 10_000));
       current = store.getTicket(channel.id) || current;
     }
+
     const config = configFor(current.guildId);
-    const logChannel = config.transcriptChannelId ? await channel.guild.channels.fetch(config.transcriptChannelId).catch(() => null) : null;
-    if (!logChannel || !logChannel.isTextBased() || logChannel.id === channel.id) {
-      throw new Error("حدد قناة سجلات Transcript صحيحة من لوحة التحكم أولاً.");
+    const logChannel = config.transcriptChannelId
+      ? await channel.guild.channels.fetch(config.transcriptChannelId).catch(() => null)
+      : null;
+    if (config.transcriptChannelId && (!logChannel || !logChannel.isTextBased() || logChannel.id === channel.id)) {
+      throw new Error("قناة سجل التكت المحددة غير متاحة. صححها من إعدادات لوحة TicketNXT.");
     }
-    const logPermissions = logChannel.permissionsFor(channel.client.user);
-    if (!logPermissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles])) {
-      throw new Error("البوت يحتاج صلاحيات عرض قناة السجلات وإرسال الرسائل وإرفاق الملفات.");
-    }
-    if (!current.transcriptDmSentAt) {
-      const dmFile = await transcriptFile(channel, current);
-      try {
-        const opener = await channel.client.users.fetch(current.userId);
-        await opener.send({ content: "نسخة محادثة تذكرتك رقم #" + current.number + " في " + channel.guild.name + ".", files: [dmFile] });
-        store.updateTicket(channel.id, { transcriptDmSentAt: Date.now(), transcriptDmError: null });
-      } catch (error) {
-        store.updateTicket(channel.id, { transcriptDmError: String(error.message || error).slice(0, 200) });
-        throw new Error("تعذر إرسال النسخة في الخاص. افتح الخاص مع البوت ثم أعد محاولة الإغلاق؛ لم تُحذف القناة.");
+    if (logChannel) {
+      const logPermissions = logChannel.permissionsFor(channel.client.user);
+      if (!logPermissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages])) {
+        throw new Error("البوت يحتاج صلاحيات عرض قناة السجلات وإرسال الرسائل.");
       }
     }
+
     current = store.getTicket(channel.id) || current;
-    if (!current.transcriptLogSentAt) {
-      const logFile = await transcriptFile(channel, current);
+    if (!current.transcript?.messages) {
+      const snapshot = await captureTranscript(channel, current);
+      if (!snapshot || !Array.isArray(snapshot.messages)) {
+        throw new Error("تعذر حفظ نسخة المحادثة. لم يتم حذف قناة التكت.");
+      }
+    }
+
+    current = store.getTicket(channel.id) || current;
+    if (logChannel && !current.transcriptLogSentAt) {
       const sent = await logChannel.send({
-        content: "Transcript التكت #" + current.number + " · العضو: <@" + current.userId + "> · أغلقها: " + (actorId === "system" ? "النظام" : "<@" + actorId + ">"),
-        files: [logFile], allowedMentions: { parse: [] }
+        content: "تمت أرشفة التكت #" + current.number + " — " + clean(current.optionLabel, 80) +
+          " — صاحب التكت: <@" + current.userId + "> — المحادثة محفوظة داخل صفحة السجلات في لوحة TicketNXT.",
+        allowedMentions: { parse: [] }
       });
       store.updateTicket(channel.id, { transcriptLogSentAt: Date.now(), transcriptLogMessageId: sent.id });
     }
+
     try {
-      await channel.delete(automatic ? "TicketNXT auto-close after transcript delivery" : "TicketNXT closed after transcript delivery");
+      await channel.delete(automatic ? "TicketNXT auto-close after dashboard transcript archive" : "TicketNXT closed after dashboard transcript archive");
     } catch (error) {
-      store.updateTicket(channel.id, { closedAt: null });
-      throw new Error("تم إرسال النسختين، لكن تعذر حذف قناة التكت. تحقق من صلاحية Manage Channels ثم أعد المحاولة.");
+      throw new Error("تم حفظ المحادثة، لكن تعذر حذف قناة التكت. تحقق من صلاحية Manage Channels ثم أعد المحاولة.");
     }
     store.updateTicket(channel.id, { closedAt: Date.now(), closedBy: actorId || "system" });
     return { closed: true };
