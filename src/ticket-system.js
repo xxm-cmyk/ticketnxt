@@ -16,6 +16,7 @@ const hasPermission = (member, flag) => {
   } catch { return false; }
 };
 const manager = member => hasPermission(member, PermissionFlagsBits.ManageGuild) || hasPermission(member, PermissionFlagsBits.Administrator);
+const activeClosures = new Set();
 const configFor = id => {
   const defaults = store.defaultGuildConfig();
   const saved = store.getGuild(id);
@@ -294,43 +295,58 @@ async function transcriptFile(channel, ticket) {
   return new AttachmentBuilder(Buffer.from(html, "utf8"), { name: "ticket-" + ticket.number + "-transcript.html" });
 }
 async function closeTicket(channel, ticket, actorId, automatic = false) {
-  let current = store.getTicket(channel.id) || ticket;
-  if (current.closedAt) return { closed: true };
-  if (!current.closingAt) {
-    store.updateTicket(channel.id, { closingAt: Date.now(), closingBy: actorId || "system" });
-    await channel.send({ content: "سيتم إغلاق التذكرة خلال 10 ثوانٍ وحفظ نسخة من المحادثة.", allowedMentions: { parse: [] } });
-    await new Promise(resolve => setTimeout(resolve, 10_000));
-    current = store.getTicket(channel.id) || current;
-  }
-  const config = configFor(current.guildId);
-  const logChannel = config.transcriptChannelId ? await channel.guild.channels.fetch(config.transcriptChannelId).catch(() => null) : null;
-  if (!logChannel || !logChannel.isTextBased() || logChannel.id === channel.id) {
-    store.updateTicket(channel.id, { closingAt: null });
-    throw new Error("حدد قناة سجلات Transcript من لوحة التحكم أولاً.");
-  }
-  if (!current.transcriptDmSentAt) {
-    const dmFile = await transcriptFile(channel, current);
-    try {
-      const opener = await channel.client.users.fetch(current.userId);
-      await opener.send({ content: "نسخة محادثة تذكرتك رقم #" + current.number + " في " + channel.guild.name + ".", files: [dmFile] });
-      store.updateTicket(channel.id, { transcriptDmSentAt: Date.now(), transcriptDmError: null });
-    } catch (error) {
-      store.updateTicket(channel.id, { transcriptDmError: String(error.message || error).slice(0, 200) });
-      throw new Error("تعذر إرسال النسخة في الخاص. افتح الخاص مع البوت ثم أعد محاولة الإغلاق؛ لم تُحذف القناة.");
+  const key = channel.id;
+  if (activeClosures.has(key)) throw new Error("إغلاق التذكرة قيد التنفيذ بالفعل.");
+  activeClosures.add(key);
+  try {
+    let current = store.getTicket(channel.id) || ticket;
+    if (current.closedAt) return { closed: true };
+    if (!current.closingAt) {
+      store.updateTicket(channel.id, { closingAt: Date.now(), closingBy: actorId || "system" });
+      await channel.send({ content: "سيتم إغلاق التذكرة خلال 10 ثوانٍ وحفظ نسخة من المحادثة.", allowedMentions: { parse: [] } });
+      await new Promise(resolve => setTimeout(resolve, 10_000));
+      current = store.getTicket(channel.id) || current;
     }
+    const config = configFor(current.guildId);
+    const logChannel = config.transcriptChannelId ? await channel.guild.channels.fetch(config.transcriptChannelId).catch(() => null) : null;
+    if (!logChannel || !logChannel.isTextBased() || logChannel.id === channel.id) {
+      throw new Error("حدد قناة سجلات Transcript صحيحة من لوحة التحكم أولاً.");
+    }
+    const logPermissions = logChannel.permissionsFor(channel.client.user);
+    if (!logPermissions?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.AttachFiles])) {
+      throw new Error("البوت يحتاج صلاحيات عرض قناة السجلات وإرسال الرسائل وإرفاق الملفات.");
+    }
+    if (!current.transcriptDmSentAt) {
+      const dmFile = await transcriptFile(channel, current);
+      try {
+        const opener = await channel.client.users.fetch(current.userId);
+        await opener.send({ content: "نسخة محادثة تذكرتك رقم #" + current.number + " في " + channel.guild.name + ".", files: [dmFile] });
+        store.updateTicket(channel.id, { transcriptDmSentAt: Date.now(), transcriptDmError: null });
+      } catch (error) {
+        store.updateTicket(channel.id, { transcriptDmError: String(error.message || error).slice(0, 200) });
+        throw new Error("تعذر إرسال النسخة في الخاص. افتح الخاص مع البوت ثم أعد محاولة الإغلاق؛ لم تُحذف القناة.");
+      }
+    }
+    current = store.getTicket(channel.id) || current;
+    if (!current.transcriptLogSentAt) {
+      const logFile = await transcriptFile(channel, current);
+      const sent = await logChannel.send({
+        content: "Transcript التكت #" + current.number + " · العضو: <@" + current.userId + "> · أغلقها: " + (actorId === "system" ? "النظام" : "<@" + actorId + ">"),
+        files: [logFile], allowedMentions: { parse: [] }
+      });
+      store.updateTicket(channel.id, { transcriptLogSentAt: Date.now(), transcriptLogMessageId: sent.id });
+    }
+    try {
+      await channel.delete(automatic ? "TicketNXT auto-close after transcript delivery" : "TicketNXT closed after transcript delivery");
+    } catch (error) {
+      store.updateTicket(channel.id, { closedAt: null });
+      throw new Error("تم إرسال النسختين، لكن تعذر حذف قناة التكت. تحقق من صلاحية Manage Channels ثم أعد المحاولة.");
+    }
+    store.updateTicket(channel.id, { closedAt: Date.now(), closedBy: actorId || "system" });
+    return { closed: true };
+  } finally {
+    activeClosures.delete(key);
   }
-  current = store.getTicket(channel.id) || current;
-  if (!current.transcriptLogSentAt) {
-    const logFile = await transcriptFile(channel, current);
-    const sent = await logChannel.send({
-      content: "Transcript التكت #" + current.number + " · العضو: <@" + current.userId + "> · أغلقها: " + (actorId === "system" ? "النظام" : "<@" + actorId + ">"),
-      files: [logFile], allowedMentions: { parse: [] }
-    });
-    store.updateTicket(channel.id, { transcriptLogSentAt: Date.now(), transcriptLogMessageId: sent.id });
-  }
-  store.updateTicket(channel.id, { closedAt: Date.now(), closedBy: actorId || "system" });
-  await channel.delete(automatic ? "TicketNXT auto-close after transcript delivery" : "TicketNXT closed after transcript delivery");
-  return { closed: true };
 }
 async function showReasonModal(interaction, option) {
   const modal = new ModalBuilder().setCustomId("tnxt:reason:" + option.id).setTitle("فتح تذكرة");
