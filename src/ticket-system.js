@@ -306,10 +306,11 @@ function registerTicketSystem(app, client, requireLogin) {
         return res.status(403).json({ error: "bot_missing_permissions" });
       const config = configFor(id);
       const payload = panelPayload(config);
-      let message = config.panelChannelId === channel.id && config.panelMessageId
-        ? await channel.messages.fetch(config.panelMessageId).catch(() => null) : null;
-      if (message) await message.edit(payload);
-      else message = await channel.send(payload);
+      const oldChannel = config.panelChannelId ? await guild.channels.fetch(config.panelChannelId).catch(() => null) : null;
+      const oldMessage = oldChannel?.isTextBased() && config.panelMessageId
+        ? await oldChannel.messages.fetch(config.panelMessageId).catch(() => null) : null;
+      const message = await channel.send(payload);
+      if (oldMessage) await oldMessage.delete().catch(() => {});
       config.panelChannelId = channel.id;
       config.panelMessageId = message.id;
       store.saveGuild(id, config);
