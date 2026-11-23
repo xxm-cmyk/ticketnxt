@@ -295,6 +295,7 @@ async function transcriptFile(channel, ticket) {
   return new AttachmentBuilder(Buffer.from(html, "utf8"), { name: "ticket-" + ticket.number + "-transcript.html" });
 }
 async function closeTicket(channel, ticket, actorId, automatic = false) {
+  if (process.env.ENABLE_MESSAGE_CONTENT !== "true") throw new Error("لإرسال Transcript كامل، فعّل Message Content Intent من Discord Developer Portal ثم اضبط ENABLE_MESSAGE_CONTENT=true في الاستضافة. لم يتم إغلاق التكت أو حذف القناة.");
   const key = channel.id;
   if (activeClosures.has(key)) throw new Error("إغلاق التذكرة قيد التنفيذ بالفعل.");
   activeClosures.add(key);
