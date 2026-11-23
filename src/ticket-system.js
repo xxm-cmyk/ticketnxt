@@ -22,7 +22,7 @@ const configFor = id => {
   if (!saved) return defaults;
   return {
     ...defaults, ...saved,
-    panel: { ...defaults.panel, ...(saved.panel || {}), components: Array.isArray(saved.panel?.components) ? saved.panel.components : [] },
+    panel: { ...defaults.panel, ...(saved.panel || {}), options: Array.isArray(saved.panel?.options) ? saved.panel.options.slice(0, 5) : defaults.panel.options, components: Array.isArray(saved.panel?.components) ? saved.panel.components : [] },
     transcriptChannelId: saved.transcriptChannelId || null,
     overrideRoleIds: Array.isArray(saved.overrideRoleIds) ? saved.overrideRoleIds : []
   };
@@ -105,6 +105,17 @@ function normalizePanelComponents(input, guild, options) {
     throw new Error("نوع مكوّن غير مدعوم: " + type);
   });
   if (textTotal > 4000) throw new Error("مجموع نصوص الرسالة يتجاوز حد Discord البالغ 4000 حرف.");
+  let total = 1, rowOpen = false, rowButtons = 0;
+  for (const item of normalized) {
+    if (item.type === "button") {
+      if (!rowOpen || rowButtons === 5) { total++; rowOpen = true; rowButtons = 0; }
+      total++; rowButtons++;
+    } else {
+      rowOpen = false; rowButtons = 0; total++;
+      if (item.type === "section") total += 2;
+    }
+  }
+  if (total > 40) throw new Error("تجاوزت الرسالة حد Discord البالغ 40 مكوّناً.");
   return normalized.map((item, index) => ({ ...item, order: index }));
 }
 function validateConfig(input, guild) {
@@ -288,7 +299,7 @@ async function closeTicket(channel, ticket, actorId, automatic = false) {
   }
   const config = configFor(current.guildId);
   const logChannel = config.transcriptChannelId ? await channel.guild.channels.fetch(config.transcriptChannelId).catch(() => null) : null;
-  if (!logChannel || !logChannel.isTextBased()) {
+  if (!logChannel || !logChannel.isTextBased() || logChannel.id === channel.id) {
     store.updateTicket(channel.id, { closingAt: null });
     throw new Error("حدد قناة سجلات Transcript من لوحة التحكم أولاً.");
   }
@@ -474,8 +485,9 @@ function registerTicketSystem(app, client, requireLogin) {
   client.on(Events.InteractionCreate, interaction => handleInteraction(interaction).catch(async error => {
     console.error("Ticket interaction failed:", error);
     if (interaction.isRepliable()) {
-      if (interaction.deferred) await interaction.editReply({ content: "حدث خطأ أثناء تنفيذ العملية. تحقق من صلاحيات البوت وحاول مرة أخرى." }).catch(() => {});
-      else if (!interaction.replied) await interaction.reply({ content: "حدث خطأ أثناء تنفيذ العملية. تحقق من صلاحيات البوت وحاول مرة أخرى.", flags: MessageFlags.Ephemeral }).catch(() => {});
+      const message = String(error?.message || "حدث خطأ أثناء تنفيذ العملية.").slice(0, 1500);
+      if (interaction.deferred) await interaction.editReply({ content: message }).catch(() => {});
+      else if (!interaction.replied) await interaction.reply({ content: message, flags: MessageFlags.Ephemeral }).catch(() => {});
     }
   }));
   client.on(Events.MessageCreate, message => {
