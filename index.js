@@ -11,9 +11,13 @@ const app = express();
 const PORT = Number(process.env.SERVER_PORT || process.env.PORT || 3000);
 const REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || "https://ticketnxt.apps.bot-hosting.cloud/auth/discord/callback";
 const OAUTH_CONFIGURED = Boolean(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET);
+const MESSAGE_CONTENT_ENABLED = process.env.ENABLE_MESSAGE_CONTENT === "true";
 let botReady = false;
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages] });
+const client = new Client({ intents: [
+  GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages,
+  ...(MESSAGE_CONTENT_ENABLED ? [GatewayIntentBits.MessageContent] : [])
+] });
 app.set("trust proxy", 1);
 app.use(express.json({ limit: "32kb" }));
 app.use(session({
