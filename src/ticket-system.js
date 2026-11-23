@@ -270,7 +270,8 @@ function registerTicketSystem(app, client, requireLogin) {
       const id = req.session.selectedGuildId;
       if (!id || !(req.session.manageableGuilds || []).some(g => g.id === id)) return res.status(403).json({ error: "guild_not_selected" });
       const guild = await client.guilds.fetch(id);
-      await Promise.all([guild.roles.fetch(), guild.channels.fetch(), guild.emojis.fetch()]);
+      await Promise.all([guild.roles.fetch(), guild.channels.fetch()]);
+      await guild.emojis.fetch().catch(() => null);
       const config = configFor(id);
       res.json({
         guild: { id: guild.id, name: guild.name },
