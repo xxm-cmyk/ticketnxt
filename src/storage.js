@@ -81,12 +81,10 @@ function defaultGuildConfig() {
     panel: {
       title: "مركز الدعم",
       description: "اختر القسم المناسب لفتح تذكرة جديدة.",
-      mode: "embed",
-      optionDisplay: "buttons",
-      imageUrl: "",
-      accentColor: "#5865F2",
+      components: [],
       options: [defaultOption()]
     },
+    transcriptChannelId: null,
     overrideRoleIds: [],
     panelChannelId: null,
     panelMessageId: null,
