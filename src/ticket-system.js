@@ -252,12 +252,21 @@ async function handleInteraction(interaction) {
   if (interaction.customId === "tnxt:claim") {
     if (ticket.claimedBy) return interaction.reply({ content: "التذكرة مستلمة بالفعل.", flags: MessageFlags.Ephemeral });
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    for (const roleId of roles) await interaction.channel.permissionOverwrites.edit(roleId, { ViewChannel: false }).catch(() => {});
-    for (const roleId of (ticket.overrideRoleIds || config.overrideRoleIds)) await interaction.channel.permissionOverwrites.edit(roleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(() => {});
-    await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
-    store.updateTicket(interaction.channelId, { claimedBy: interaction.user.id });
-    await interaction.channel.send({ content: "تم استلام التذكرة بواسطة <@" + interaction.user.id + ">.", allowedMentions: { users: [interaction.user.id] } });
-    return interaction.editReply({ content: "تم استلام التذكرة، وأصبحت مخفية عن بقية فريق الدعم." });
+    try {
+      for (const roleId of roles) await interaction.channel.permissionOverwrites.edit(roleId, { ViewChannel: false });
+      for (const roleId of (ticket.overrideRoleIds || config.overrideRoleIds))
+        await interaction.channel.permissionOverwrites.edit(roleId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+      await interaction.channel.permissionOverwrites.edit(interaction.user.id, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true });
+      store.updateTicket(interaction.channelId, { claimedBy: interaction.user.id });
+      await interaction.channel.send({ content: "تم استلام التذكرة بواسطة <@" + interaction.user.id + ">.", allowedMentions: { users: [interaction.user.id] } });
+      return interaction.editReply({ content: "تم استلام التذكرة، وأصبحت مخفية عن بقية فريق الدعم." });
+    } catch (error) {
+      for (const roleId of roles) await interaction.channel.permissionOverwrites.edit(roleId, { ViewChannel: true }).catch(() => {});
+      if (interaction.user.id === ticket.userId)
+        await interaction.channel.permissionOverwrites.edit(ticket.userId, { ViewChannel: true, SendMessages: true, ReadMessageHistory: true }).catch(() => {});
+      else await interaction.channel.permissionOverwrites.delete(interaction.user.id).catch(() => {});
+      throw error;
+    }
   }
   if (interaction.customId === "tnxt:transfer") {
     if (!ticket.claimedBy) return interaction.reply({ content: "استلم التذكرة أولاً.", flags: MessageFlags.Ephemeral });
