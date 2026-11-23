@@ -18,10 +18,88 @@ const hasPermission = (member, flag) => {
 const manager = member => hasPermission(member, PermissionFlagsBits.ManageGuild) || hasPermission(member, PermissionFlagsBits.Administrator);
 const configFor = id => store.getGuild(id) || store.defaultGuildConfig();
 
+function normalizeEmoji(value, guild) {
+  const raw = clean(value, 100);
+  if (!raw) return null;
+  const match = raw.match(/^<a?:[a-zA-Z0-9_]+:(\d+)>$/);
+  const customId = raw.startsWith("custom:") ? raw.slice(7) : (match ? match[1] : null);
+  if (customId) {
+    const emoji = guild.emojis.cache.get(customId);
+    if (!emoji) throw new Error("الإيموجي المخصص غير موجود في هذا السيرفر.");
+    return "<" + (emoji.animated ? "a" : "") + ":" + emoji.name + ":" + emoji.id + ">";
+  }
+  if (/^<a?:/.test(raw)) throw new Error("صيغة الإيموجي المخصص غير صحيحة.");
+  return raw;
+}
+function emojiObject(value) {
+  const raw = String(value || "");
+  const match = raw.match(/^<(a?):([a-zA-Z0-9_]+):(\d+)>$/);
+  return match ? { id: match[3], name: match[2], animated: Boolean(match[1]) } : (raw ? { name: raw } : undefined);
+}
+function normalizePanelComponents(input, guild, options) {
+  const source = Array.isArray(input) ? input : [];
+  if (source.length > 39) throw new Error("وصلت للحد الأقصى لمكونات الرسالة.");
+  let textTotal = 0;
+  const optionIds = new Set(options.map(o => o.id));
+  return source.map(item => {
+    const type = String(item?.type || "");
+    if (type === "text") {
+      const content = String(item.content || "").trim().slice(0, 4000);
+      if (!content) throw new Error("مكوّن Text Display يحتاج نصاً.");
+      textTotal += content.length;
+      return { id: clean(item.id || crypto.randomUUID(), 40), type, content };
+    }
+    if (type === "section") {
+      const content = String(item.content || "").trim().slice(0, 4000);
+      if (!content) throw new Error("مكوّن Section يحتاج نصاً.");
+      textTotal += content.length;
+      const accessoryType = item.accessoryType === "button" ? "button" : "thumbnail";
+      const out = { id: clean(item.id || crypto.randomUUID(), 40), type, content, accessoryType };
+      if (accessoryType === "thumbnail") {
+        const url = clean(item.url, 2048);
+        if (!/^https:\/\//i.test(url)) throw new Error("صورة Section تحتاج رابط https صحيحاً.");
+        out.url = url;
+        out.description = clean(item.description, 1024);
+      } else {
+        out.label = clean(item.label, 80);
+        out.optionId = clean(item.optionId, 24);
+        out.emoji = normalizeEmoji(item.emoji, guild);
+        if (!out.label || !optionIds.has(out.optionId)) throw new Error("زر Section يحتاج اسماً ونوع تكت مرتبطاً.");
+      }
+      return out;
+    }
+    if (type === "media") {
+      const items = (Array.isArray(item.items) ? item.items : []).slice(0, 10).map(media => {
+        const url = clean(media.url, 2048);
+        if (!/^https:\/\//i.test(url)) throw new Error("كل صورة في Media Gallery تحتاج رابط https صحيحاً.");
+        return { url, description: clean(media.description, 1024) };
+      });
+      if (!items.length) throw new Error("Media Gallery يحتاج صورة واحدة على الأقل.");
+      return { id: clean(item.id || crypto.randomUUID(), 40), type, items };
+    }
+    if (type === "separator") return { id: clean(item.id || crypto.randomUUID(), 40), type, spacing: Number(item.spacing) === 2 ? 2 : 1, divider: item.divider !== false };
+    if (type === "button") {
+      const label = clean(item.label, 80);
+      const style = Math.max(1, Math.min(5, Number(item.style) || 1));
+      const emoji = normalizeEmoji(item.emoji, guild);
+      if (style === 5) {
+        const url = clean(item.url, 512);
+        if (!/^https:\/\//i.test(url) || (!label && !emoji)) throw new Error("زر الرابط يحتاج رابط https واسماً أو إيموجياً.");
+        return { id: clean(item.id || crypto.randomUUID(), 40), type, label, emoji, style, url };
+      }
+      const optionId = clean(item.optionId, 24);
+      if (!optionIds.has(optionId)) throw new Error("اربط كل زر بنوع تكت.");
+      if (!label && !emoji) throw new Error("الزر يحتاج اسماً أو إيموجياً.");
+      return { id: clean(item.id || crypto.randomUUID(), 40), type, label, emoji, style, optionId };
+    }
+    throw new Error("نوع مكوّن غير مدعوم: " + type);
+  }).map((item, index) => ({ ...item, order: index }));
+}
 function validateConfig(input, guild) {
   const p = input?.panel || {};
-  const options = Array.isArray(p.options) ? p.options.slice(0, 25) : [];
-  if (!options.length) throw new Error("أضف خيار تكت واحداً على الأقل.");
+  const options = Array.isArray(p.options) ? p.options : [];
+  if (options.length > 5) throw new Error("الحد الأقصى 5 أنواع تكت في اللوحة الواحدة.");
+  if (!options.length) throw new Error("أضف نوع تكت واحداً على الأقل.");
   const validRole = id => guild.roles.cache.has(String(id));
   const normalizedOptions = options.map(item => {
     const label = clean(item.label, 80);
@@ -33,7 +111,7 @@ function validateConfig(input, guild) {
     const categoryId = guild.channels.cache.get(String(item.categoryId || ""))?.type === ChannelType.GuildCategory ? String(item.categoryId) : null;
     return {
       id: /^[a-zA-Z0-9_-]{1,24}$/.test(String(item.id || "")) ? String(item.id) : crypto.randomBytes(6).toString("hex"),
-      label, description: clean(item.description, 100), emoji: clean(item.emoji, 80),
+      label, description: clean(item.description, 100), emoji: normalizeEmoji(item.emoji, guild),
       supportRoleIds, allowedRoleIds, categoryId,
       askReason: Boolean(item.askReason),
       askReasonPrompt: clean(item.askReasonPrompt || "ما سبب فتح التذكرة؟", 120),
@@ -41,17 +119,16 @@ function validateConfig(input, guild) {
       channelNameTemplate: clean(item.channelNameTemplate || "ticket-{number}", 90)
     };
   });
-  const imageUrl = clean(p.imageUrl, 500);
-  if (imageUrl && !/^https:\/\//i.test(imageUrl)) throw new Error("رابط الصورة يجب أن يبدأ بـ https://");
-  const color = /^#[0-9a-fA-F]{6}$/.test(p.accentColor || "") ? p.accentColor : "#5865F2";
+  const components = normalizePanelComponents(p.components, guild, normalizedOptions);
+  const transcriptChannelId = guild.channels.cache.get(String(input.transcriptChannelId || ""))?.type === ChannelType.GuildText
+    ? String(input.transcriptChannelId) : null;
   return {
     panel: {
       title: clean(p.title || "مركز الدعم", 250),
-      description: clean(p.description || "اختر القسم المناسب لفتح تذكرة جديدة.", 3500),
-      mode: p.mode === "components" ? "components" : "embed",
-      optionDisplay: p.optionDisplay === "select" ? "select" : "buttons",
-      imageUrl, accentColor: color, options: normalizedOptions
+      description: clean(p.description || "", 3500),
+      components, options: normalizedOptions
     },
+    transcriptChannelId,
     overrideRoleIds: (() => {
       const ids = [...new Set((input.overrideRoleIds || []).map(String))].filter(validRole).slice(0, 10);
       const botHighest = guild.members.me?.roles.highest.position || 0;
@@ -60,36 +137,39 @@ function validateConfig(input, guild) {
     })()
   };
 }
-function rowsForOptions(options) {
-  const rows = [];
-  for (let i = 0; i < options.length; i += 5) {
-    rows.push(new ActionRowBuilder().addComponents(options.slice(i, i + 5).map(o => {
-      const b = new ButtonBuilder().setCustomId("tnxt:open:" + o.id).setLabel(o.label).setStyle(ButtonStyle.Primary);
-      if (o.emoji) { try { b.setEmoji(o.emoji); } catch {} }
-      return b;
-    })));
+function buildV2Component(item) {
+  if (item.type === "text") return { type: 10, content: item.content };
+  if (item.type === "separator") return { type: 14, spacing: item.spacing, divider: item.divider };
+  if (item.type === "media") return { type: 12, items: item.items.map(x => ({ media: { url: x.url }, ...(x.description ? { description: x.description } : {}) })) };
+  if (item.type === "section") {
+    const accessory = item.accessoryType === "thumbnail"
+      ? { type: 11, media: { url: item.url }, ...(item.description ? { description: item.description } : {}) }
+      : { type: 2, style: 1, custom_id: "tnxt:open:" + item.optionId, label: item.label, ...(item.emoji ? { emoji: emojiObject(item.emoji) } : {}) };
+    return { type: 9, components: [{ type: 10, content: item.content }], accessory };
   }
-  return rows;
+  if (item.type === "button") {
+    return { type: 1, components: [{
+      type: 2, style: item.style,
+      ...(item.style === 5 ? { url: item.url } : { custom_id: "tnxt:open:" + item.optionId }),
+      ...(item.label ? { label: item.label } : {}),
+      ...(item.emoji ? { emoji: emojiObject(item.emoji) } : {})
+    }] };
+  }
+  return null;
 }
 function panelPayload(config) {
   const p = config.panel;
-  const rows = p.optionDisplay === "select"
-    ? [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
-        .setCustomId("tnxt:select").setPlaceholder("اختر نوع التذكرة")
-        .addOptions(p.options.map(o => ({
-          label: o.label, value: o.id, description: o.description || "فتح تذكرة جديدة",
-          ...(o.emoji ? { emoji: o.emoji } : {})
-        }))))]
-    : rowsForOptions(p.options);
-  if (p.mode === "components") {
-    const body = [{ type: 10, content: "# " + p.title + (p.description ? "\n" + p.description : "") }];
-    if (p.imageUrl) body.push({ type: 12, items: [{ media: { url: p.imageUrl } }] });
-    body.push(...rows.map(r => r.toJSON()));
-    return { flags: MessageFlags.IsComponentsV2, components: [{ type: 17, accent_color: parseInt(p.accentColor.slice(1), 16), components: body }], allowedMentions: { parse: [] } };
-  }
-  const embed = new EmbedBuilder().setColor(p.accentColor).setTitle(p.title).setDescription(p.description || "اختر أحد الأقسام لفتح تذكرة.");
-  if (p.imageUrl) embed.setImage(p.imageUrl);
-  return { embeds: [embed], components: rows, allowedMentions: { parse: [] } };
+  const configured = Array.isArray(p.components) ? p.components : [];
+  const body = configured.length
+    ? configured.map(buildV2Component).filter(Boolean)
+    : [
+        { type: 10, content: "مركز الدعم" + (p.description ? "\n" + p.description : "") },
+        { type: 1, components: p.options.slice(0, 5).map(o => ({
+          type: 2, style: 1, custom_id: "tnxt:open:" + o.id, label: o.label,
+          ...(o.emoji ? { emoji: emojiObject(o.emoji) } : {})
+        })) }
+      ];
+  return { flags: MessageFlags.IsComponentsV2, components: [{ type: 17, components: body }], allowedMentions: { parse: [] } };
 }
 function ticketRows() {
   return [new ActionRowBuilder().addComponents(
@@ -172,19 +252,43 @@ async function transcriptFile(channel, ticket) {
   return new AttachmentBuilder(Buffer.from(html, "utf8"), { name: "ticket-" + ticket.number + "-transcript.html" });
 }
 async function closeTicket(channel, ticket, actorId, automatic = false) {
-  const current = store.getTicket(channel.id) || ticket;
-  if (current.closedAt) return;
-  if (!current.transcriptMessageId) {
-    const file = await transcriptFile(channel, current);
-    const sent = await channel.send({
-      content: automatic ? "أُغلقت التذكرة تلقائياً بسبب عدم النشاط." : "تم إغلاق التذكرة.",
-      files: [file], allowedMentions: { parse: [] }
-    });
-    store.updateTicket(channel.id, { transcriptMessageId: sent.id });
+  let current = store.getTicket(channel.id) || ticket;
+  if (current.closedAt) return { closed: true };
+  if (!current.closingAt) {
+    store.updateTicket(channel.id, { closingAt: Date.now(), closingBy: actorId || "system" });
+    await channel.send({ content: "سيتم إغلاق التذكرة خلال 10 ثوانٍ وحفظ نسخة من المحادثة.", allowedMentions: { parse: [] } });
+    await new Promise(resolve => setTimeout(resolve, 10_000));
+    current = store.getTicket(channel.id) || current;
   }
-  await channel.permissionOverwrites.edit(current.userId, { ViewChannel: false, SendMessages: false });
-  if (!channel.name.startsWith("closed-")) await channel.setName(("closed-" + channel.name).slice(0, 100)).catch(() => {});
+  const config = configFor(current.guildId);
+  const logChannel = config.transcriptChannelId ? await channel.guild.channels.fetch(config.transcriptChannelId).catch(() => null) : null;
+  if (!logChannel || !logChannel.isTextBased()) {
+    store.updateTicket(channel.id, { closingAt: null });
+    throw new Error("حدد قناة سجلات Transcript من لوحة التحكم أولاً.");
+  }
+  if (!current.transcriptDmSentAt) {
+    const dmFile = await transcriptFile(channel, current);
+    try {
+      const opener = await channel.client.users.fetch(current.userId);
+      await opener.send({ content: "نسخة محادثة تذكرتك رقم #" + current.number + " في " + channel.guild.name + ".", files: [dmFile] });
+      store.updateTicket(channel.id, { transcriptDmSentAt: Date.now(), transcriptDmError: null });
+    } catch (error) {
+      store.updateTicket(channel.id, { transcriptDmError: String(error.message || error).slice(0, 200) });
+      throw new Error("تعذر إرسال النسخة في الخاص. افتح الخاص مع البوت ثم أعد محاولة الإغلاق؛ لم تُحذف القناة.");
+    }
+  }
+  current = store.getTicket(channel.id) || current;
+  if (!current.transcriptLogSentAt) {
+    const logFile = await transcriptFile(channel, current);
+    const sent = await logChannel.send({
+      content: "Transcript التكت #" + current.number + " · العضو: <@" + current.userId + "> · أغلقها: " + (actorId === "system" ? "النظام" : "<@" + actorId + ">"),
+      files: [logFile], allowedMentions: { parse: [] }
+    });
+    store.updateTicket(channel.id, { transcriptLogSentAt: Date.now(), transcriptLogMessageId: sent.id });
+  }
   store.updateTicket(channel.id, { closedAt: Date.now(), closedBy: actorId || "system" });
+  await channel.delete(automatic ? "TicketNXT auto-close after transcript delivery" : "TicketNXT closed after transcript delivery");
+  return { closed: true };
 }
 async function showReasonModal(interaction, option) {
   const modal = new ModalBuilder().setCustomId("tnxt:reason:" + option.id).setTitle("فتح تذكرة");
@@ -243,10 +347,10 @@ async function handleInteraction(interaction) {
   const roles = ticket.supportRoleIds || option?.supportRoleIds || [];
   const staff = canStaff(interaction.member, ticket, config);
   if (interaction.customId === "tnxt:close") {
-    if (interaction.user.id !== ticket.userId && !staff) return interaction.reply({ content: "ليس لديك صلاحية إغلاق هذه التذكرة.", flags: MessageFlags.Ephemeral });
+    if (!staff) return interaction.reply({ content: "إغلاق التذكرة مخصص للإداريين وفريق الدعم.", flags: MessageFlags.Ephemeral });
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await closeTicket(interaction.channel, ticket, interaction.user.id);
-    return interaction.editReply({ content: "تم إغلاق التذكرة وإرفاق الـ Transcript." });
+    return interaction.editReply({ content: "تم إرسال نسخة المحادثة في الخاص وقناة السجلات وحذف قناة التكت." });
   }
   if (!staff) return interaction.reply({ content: "هذا الإجراء مخصص لفريق الدعم.", flags: MessageFlags.Ephemeral });
   if (interaction.customId === "tnxt:claim") {
@@ -292,7 +396,7 @@ function registerTicketSystem(app, client, requireLogin) {
       res.json({
         guild: { id: guild.id, name: guild.name },
         roles: [...guild.roles.cache.values()].filter(r => r.id !== guild.id && !r.managed).map(r => ({ id: r.id, name: r.name, color: r.hexColor })),
-        emojis: [...guild.emojis.cache.values()].map(e => ({ id: e.id, name: e.name, value: "<" + (e.animated ? "a" : "") + ":" + e.name + ":" + e.id + ">" })),
+        emojis: [...guild.emojis.cache.values()].map(e => ({ id: e.id, name: e.name, animated: e.animated, value: "custom:" + e.id, display: (e.animated ? "GIF " : "") + ":" + e.name + ":" })),
         channels: [...guild.channels.cache.values()].filter(c => c.type === ChannelType.GuildText).map(c => ({ id: c.id, name: c.name })),
         categories: [...guild.channels.cache.values()].filter(c => c.type === ChannelType.GuildCategory).map(c => ({ id: c.id, name: c.name })),
         config
