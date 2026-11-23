@@ -143,12 +143,16 @@ function validateConfig(input, guild) {
     };
   });
   const components = normalizePanelComponents(p.components, guild, normalizedOptions);
+  const title = clean(p.title || "مركز الدعم", 250);
+  const description = clean(p.description || "", 3500);
+  const componentText = components.reduce((sum, item) => sum + (item.content ? item.content.length : 0), 0);
+  if (title.length + description.length + componentText > 4000) throw new Error("مجموع نصوص الرسالة يتجاوز حد Discord البالغ 4000 حرف.");
   const transcriptChannelId = guild.channels.cache.get(String(input.transcriptChannelId || ""))?.type === ChannelType.GuildText
     ? String(input.transcriptChannelId) : null;
   return {
     panel: {
-      title: clean(p.title || "مركز الدعم", 250),
-      description: clean(p.description || "", 3500),
+      title,
+      description,
       components, options: normalizedOptions
     },
     transcriptChannelId,
@@ -184,6 +188,8 @@ function panelPayload(config) {
   const p = config.panel;
   const configured = Array.isArray(p.components) ? p.components : [];
   const body = [];
+  const heading = (p.title || p.description) ? { type: 10, content: (p.title ? "# " + p.title : "") + (p.description ? ((p.title ? "\n" : "") + p.description) : "") } : null;
+  if (heading) body.push(heading);
   if (configured.length) {
     for (let i = 0; i < configured.length;) {
       if (configured[i].type === "button") {
@@ -200,7 +206,6 @@ function panelPayload(config) {
       }
     }
   } else {
-    body.push({ type: 10, content: "مركز الدعم" + (p.description ? "\n" + p.description : "") });
     body.push({ type: 1, components: p.options.slice(0, 5).map(o => ({
       type: 2, style: 1, custom_id: "tnxt:open:" + o.id, label: o.label,
       ...(o.emoji ? { emoji: emojiObject(o.emoji) } : {})
