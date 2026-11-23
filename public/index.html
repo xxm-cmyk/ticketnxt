@@ -68,6 +68,7 @@ function renderEditor(){
   document.getElementById("panelTitle").oninput=e=>{p.title=e.target.value;renderPreview()};
   document.getElementById("panelDescription").oninput=e=>{p.description=e.target.value;renderPreview()};
   document.getElementById("publishChannel").value=config.panelChannelId||"";
+  document.getElementById("publishChannel").value=config.panelChannelId||"";
   document.getElementById("transcriptChannel").value=config.transcriptChannelId||"";
   document.getElementById("transcriptChannel").onchange=e=>config.transcriptChannelId=e.target.value||null;
   document.getElementById("addComponent").onclick=()=>{
