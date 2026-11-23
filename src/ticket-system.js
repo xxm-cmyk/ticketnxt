@@ -118,8 +118,8 @@ async function createTicket(interaction, option, reason) {
     { id: interaction.user.id, allow: [...allow, PermissionFlagsBits.AttachFiles] },
     { id: interaction.client.user.id, allow: [...allow, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.AttachFiles] }
   ];
-  for (const id of option.supportRoleIds) if (guild.roles.cache.has(id)) overwrites.push({ id, allow });
-  for (const id of config.overrideRoleIds) if (guild.roles.cache.has(id)) overwrites.push({ id, allow });
+  for (const id of new Set([...option.supportRoleIds, ...config.overrideRoleIds]))
+    if (guild.roles.cache.has(id)) overwrites.push({ id, allow });
   const createOptions = { name: channelName, type: ChannelType.GuildText, permissionOverwrites: overwrites, reason: "TicketNXT ticket #" + number };
   const category = option.categoryId && guild.channels.cache.get(option.categoryId);
   if (category?.type === ChannelType.GuildCategory) createOptions.parent = category.id;
