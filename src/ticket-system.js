@@ -172,11 +172,18 @@ async function transcriptFile(channel, ticket) {
   return new AttachmentBuilder(Buffer.from(html, "utf8"), { name: "ticket-" + ticket.number + "-transcript.html" });
 }
 async function closeTicket(channel, ticket, actorId, automatic = false) {
-  if (ticket.closedAt) return;
-  const file = await transcriptFile(channel, ticket);
-  await channel.send({ content: automatic ? "أُغلقت التذكرة تلقائياً بسبب عدم النشاط." : "تم إغلاق التذكرة.", files: [file], allowedMentions: { parse: [] } });
-  await channel.permissionOverwrites.edit(ticket.userId, { ViewChannel: false, SendMessages: false }).catch(() => {});
-  await channel.setName(("closed-" + channel.name).slice(0, 100)).catch(() => {});
+  const current = store.getTicket(channel.id) || ticket;
+  if (current.closedAt) return;
+  if (!current.transcriptMessageId) {
+    const file = await transcriptFile(channel, current);
+    const sent = await channel.send({
+      content: automatic ? "أُغلقت التذكرة تلقائياً بسبب عدم النشاط." : "تم إغلاق التذكرة.",
+      files: [file], allowedMentions: { parse: [] }
+    });
+    store.updateTicket(channel.id, { transcriptMessageId: sent.id });
+  }
+  await channel.permissionOverwrites.edit(current.userId, { ViewChannel: false, SendMessages: false });
+  if (!channel.name.startsWith("closed-")) await channel.setName(("closed-" + channel.name).slice(0, 100)).catch(() => {});
   store.updateTicket(channel.id, { closedAt: Date.now(), closedBy: actorId || "system" });
 }
 async function showReasonModal(interaction, option) {
