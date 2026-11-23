@@ -288,14 +288,12 @@ async function transcriptFile(channel, ticket) {
       '</header><p>' + escapeHtml(m.content || (m.embeds.length ? "[رسالة تحتوي على Embed]" : "")) +
       (links ? '<div>' + links + '</div>' : "") + '</p></article>';
   }).join("\n");
-  const contentNotice = process.env.ENABLE_MESSAGE_CONTENT === "true" ? "" : '<p><strong>تنبيه:</strong> محتوى الرسائل غير مضمّن. فعّل Message Content Intent في Discord Developer Portal ثم ENABLE_MESSAGE_CONTENT في الاستضافة لإظهار نصوص الرسائل.</p>';
   const html = '<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><title>Transcript #' + ticket.number +
     '</title><style>body{font:15px system-ui;background:#11131a;color:#eee;max-width:900px;margin:35px auto;padding:0 18px}article{padding:14px;border:1px solid #303443;border-radius:10px;margin:10px 0;overflow-wrap:anywhere}header{color:#9ca7ff;font-weight:bold}p{white-space:pre-wrap}</style><h1>TicketNXT — Transcript #' +
-    ticket.number + '</h1><p>القسم: ' + escapeHtml(ticket.optionLabel) + ' · العضو: ' + escapeHtml(ticket.userId) + '</p>' + contentNotice + rows + '</html>';
+    ticket.number + '</h1><p>القسم: ' + escapeHtml(ticket.optionLabel) + ' · العضو: ' + escapeHtml(ticket.userId) + '</p>' + rows + '</html>';
   return new AttachmentBuilder(Buffer.from(html, "utf8"), { name: "ticket-" + ticket.number + "-transcript.html" });
 }
 async function closeTicket(channel, ticket, actorId, automatic = false) {
-  if (process.env.ENABLE_MESSAGE_CONTENT !== "true") throw new Error("لإرسال Transcript كامل، فعّل Message Content Intent من Discord Developer Portal ثم اضبط ENABLE_MESSAGE_CONTENT=true في الاستضافة. لم يتم إغلاق التكت أو حذف القناة.");
   const key = channel.id;
   if (activeClosures.has(key)) throw new Error("إغلاق التذكرة قيد التنفيذ بالفعل.");
   activeClosures.add(key);
