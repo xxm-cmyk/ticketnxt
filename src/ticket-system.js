@@ -89,6 +89,11 @@ function normalizePanelComponents(input, guild, options) {
       return { id: clean(item.id || crypto.randomUUID(), 40), type, items };
     }
     if (type === "separator") return { id: clean(item.id || crypto.randomUUID(), 40), type, spacing: Number(item.spacing) === 2 ? 2 : 1, divider: item.divider !== false };
+    if (type === "select") {
+      const placeholder = clean(item.placeholder || "اختر نوع التذكرة", 150);
+      if (!options.length) throw new Error("قائمة الاختيار تحتاج نوع تكت واحداً على الأقل.");
+      return { id: clean(item.id || crypto.randomUUID(), 40), type, placeholder };
+    }
     if (type === "button") {
       const label = clean(item.label, 80);
       const style = Math.max(1, Math.min(5, Number(item.style) || 1));
@@ -114,6 +119,7 @@ function normalizePanelComponents(input, guild, options) {
     } else {
       rowOpen = false; rowButtons = 0; total++;
       if (item.type === "section") total += 2;
+      if (item.type === "select") total += 1;
     }
   }
   if (total > 40) throw new Error("تجاوزت الرسالة حد Discord البالغ 40 مكوّناً.");
@@ -165,8 +171,17 @@ function validateConfig(input, guild) {
     })()
   };
 }
-function buildV2Component(item) {
+function buildV2Component(item, options = []) {
   if (item.type === "text") return { type: 10, content: item.content };
+  if (item.type === "select") return { type: 1, components: [{
+    type: 3, custom_id: "tnxt:select", placeholder: item.placeholder || "اختر نوع التذكرة",
+    min_values: 1, max_values: 1,
+    options: options.slice(0, 25).map(o => ({
+      label: clean(o.label, 100), value: o.id,
+      ...(o.description ? { description: clean(o.description, 100) } : {}),
+      ...(o.emoji ? { emoji: emojiObject(o.emoji) } : {})
+    }))
+  }] };
   if (item.type === "separator") return { type: 14, spacing: item.spacing, divider: item.divider };
   if (item.type === "media") return { type: 12, items: item.items.map(x => ({ media: { url: x.url }, ...(x.description ? { description: x.description } : {}) })) };
   if (item.type === "section") {
@@ -203,14 +218,14 @@ function panelPayload(config) {
           ...(item.emoji ? { emoji: emojiObject(item.emoji) } : {})
         })) });
       } else {
-        body.push(buildV2Component(configured[i++]));
+        body.push(buildV2Component(configured[i++], p.options));
       }
     }
   } else {
-    body.push({ type: 1, components: p.options.slice(0, 5).map(o => ({
-      type: 2, style: 1, custom_id: "tnxt:open:" + o.id, label: o.label,
-      ...(o.emoji ? { emoji: emojiObject(o.emoji) } : {})
-    })) });
+    body.push(buildV2Component({ type: "select", placeholder: "اختر نوع التذكرة" }, p.options));
+  }
+  if (configured.length && !configured.some(item => item.type === "select") && p.options.length) {
+    body.push(buildV2Component({ type: "select", placeholder: "اختر نوع التذكرة" }, p.options));
   }
   return { flags: MessageFlags.IsComponentsV2, components: [{ type: 17, components: body }], allowedMentions: { parse: [] } };
 }
