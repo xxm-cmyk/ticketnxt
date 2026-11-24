@@ -11,6 +11,10 @@ const app = express();
 const PORT = Number(process.env.SERVER_PORT || process.env.PORT || 3000);
 const REDIRECT_URI = process.env.DISCORD_REDIRECT_URI || "https://ticketnxt.apps.bot-hosting.cloud/auth/discord/callback";
 const OAUTH_CONFIGURED = Boolean(process.env.DISCORD_CLIENT_ID && process.env.DISCORD_CLIENT_SECRET);
+if (!process.env.SESSION_SECRET || Buffer.byteLength(process.env.SESSION_SECRET) < 32) {
+  console.error("SESSION_SECRET must be configured with at least 32 bytes. Refusing to start with an ephemeral session secret.");
+  process.exit(1);
+}
 let botReady = false;
 
 const client = new Client({ intents: [
@@ -22,7 +26,7 @@ app.set("trust proxy", 1);
 app.use(express.json({ limit: "32kb" }));
 app.use(session({
   name: "ticketnxt.sid",
-  secret: process.env.SESSION_SECRET || crypto.randomBytes(48).toString("hex"),
+  secret: process.env.SESSION_SECRET,
   store: new FileSessionStore(path.join(__dirname, "data", "sessions.json")),
   resave: false,
   saveUninitialized: false,
@@ -87,6 +91,7 @@ app.get("/auth/discord/callback", async (req, res) => {
     ]);
     if (!userRes.ok || !guildsRes.ok) return res.status(401).send("Could not read your Discord account permissions.");
     const [user, guilds] = await Promise.all([userRes.json(), guildsRes.json()]);
+    await new Promise((resolve, reject) => req.session.regenerate(err => err ? reject(err) : resolve()));
     req.session.discordUser = safeUser(user);
     req.session.manageableGuilds = guilds.filter(canManage).map(g => ({
       id: g.id, name: g.name, owner: Boolean(g.owner),
@@ -94,7 +99,8 @@ app.get("/auth/discord/callback", async (req, res) => {
       botInstalled: client.guilds.cache.has(g.id)
     }));
     req.session.selectedGuildId = null;
-    req.session.save(err => err ? res.status(500).send("Could not save your login session.") : res.redirect("/"));
+    await new Promise((resolve, reject) => req.session.save(err => err ? reject(err) : resolve()));
+    res.redirect("/");
   } catch (err) {
     console.error("Discord OAuth callback failed:", err);
     res.status(500).send("Discord login failed unexpectedly. Please try again.");
@@ -106,13 +112,21 @@ app.get("/api/me", (req, res) => {
   res.json({ authenticated: true, user: req.session.discordUser, guilds: req.session.manageableGuilds || [],
     selectedGuildId: req.session.selectedGuildId || null, oauthConfigured: OAUTH_CONFIGURED });
 });
-app.post("/api/select-guild", requireLogin, (req, res) => {
+app.post("/api/select-guild", requireLogin, async (req, res) => {
   const id = String(req.body?.guildId || "");
-  const guild = (req.session.manageableGuilds || []).find(g => g.id === id);
-  if (!guild) return res.status(403).json({ error: "guild_not_allowed" });
-  if (!guild.botInstalled || !client.guilds.cache.has(id)) return res.status(409).json({ error: "bot_not_in_guild" });
-  req.session.selectedGuildId = id;
-  req.session.save(err => err ? res.status(500).json({ error: "session_save_failed" }) : res.json({ ok: true, selectedGuildId: id }));
+  if (!(req.session.manageableGuilds || []).some(g => g.id === id)) return res.status(403).json({ error: "guild_not_allowed" });
+  try {
+    const guild = await client.guilds.fetch(id);
+    const member = await guild.members.fetch(req.session.discordUser.id);
+    if (member.id !== guild.ownerId && !member.permissions.has(PermissionsBitField.Flags.ManageGuild) &&
+        !member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+      return res.status(403).json({ error: "manage_guild_required" });
+    }
+    req.session.selectedGuildId = id;
+    req.session.save(err => err ? res.status(500).json({ error: "session_save_failed" }) : res.json({ ok: true, selectedGuildId: id }));
+  } catch {
+    return res.status(403).json({ error: "guild_access_revoked" });
+  }
 });
 registerTicketSystem(app, client, requireLogin);
 
