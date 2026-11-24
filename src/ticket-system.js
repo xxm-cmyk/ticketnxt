@@ -244,88 +244,115 @@ function canStaff(member, ticket, config) {
   return manager(member) || hasAny(member, ticket.overrideRoleIds || config.overrideRoleIds) ||
     hasAny(member, ticket.supportRoleIds || option?.supportRoleIds || []);
 }
+const pendingTicketCreations = new Set();
 async function createTicket(interaction, option, reason) {
   const guild = interaction.guild;
-  const config = configFor(guild.id);
-  if (!canOpen(interaction.member, option))
-    return interaction.reply({ content: "ليس لديك رتبة تسمح بفتح هذا النوع من التذاكر.", flags: MessageFlags.Ephemeral });
-  const open = Object.values(store.readState().tickets).find(t => t.guildId === guild.id && t.userId === interaction.user.id && !t.closedAt);
-  if (open) return interaction.reply({ content: "لديك تذكرة مفتوحة بالفعل: <#" + open.channelId + ">", flags: MessageFlags.Ephemeral });
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  const number = store.nextTicketNumber(guild.id);
-  const username = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 18) || "member";
-  const raw = option.channelNameTemplate.replace(/\{number\}/g, String(number)).replace(/\{username\}/g, username).replace(/\{user\}/g, username);
-  const channelName = raw.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 90) || "ticket-" + number;
-  const allow = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.EmbedLinks];
-  const overwrites = [
-    { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-    { id: interaction.user.id, allow: [...allow, PermissionFlagsBits.AttachFiles] },
-    { id: interaction.client.user.id, allow: [...allow, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.AttachFiles] }
-  ];
-  for (const id of new Set([...option.supportRoleIds, ...config.overrideRoleIds]))
-    if (guild.roles.cache.has(id)) overwrites.push({ id, allow });
-  const createOptions = { name: channelName, type: ChannelType.GuildText, permissionOverwrites: overwrites, reason: "TicketNXT ticket #" + number };
-  const category = option.categoryId && guild.channels.cache.get(option.categoryId);
-  if (category?.type === ChannelType.GuildCategory) createOptions.parent = category.id;
-  const channel = await guild.channels.create(createOptions);
-  const ticket = {
-    guildId: guild.id, channelId: channel.id, userId: interaction.user.id, optionId: option.id,
-    optionLabel: option.label, number, reason: clean(reason, 1000), claimedBy: null,
-    supportRoleIds: [...option.supportRoleIds], overrideRoleIds: [...config.overrideRoleIds],
-    autoCloseMinutes: Number(option.autoCloseMinutes || 0),
-    openedAt: Date.now(), lastActivityAt: Date.now(), closedAt: null
+  const lockKey = guild.id + ":" + interaction.user.id;
+  if (pendingTicketCreations.has(lockKey)) {
+    return interaction.reply({ content: "طلب فتح التذكرة قيد المعالجة بالفعل. انتظر لحظة.", flags: MessageFlags.Ephemeral });
+  }
+  pendingTicketCreations.add(lockKey);
+  try {
+    const config = configFor(guild.id);
+    if (!canOpen(interaction.member, option))
+      return interaction.reply({ content: "ليس لديك رتبة تسمح بفتح هذا النوع من التذاكر.", flags: MessageFlags.Ephemeral });
+    const open = Object.values(store.readState().tickets).find(t => t.guildId === guild.id && t.userId === interaction.user.id && !t.closedAt);
+    if (open) return interaction.reply({ content: "لديك تذكرة مفتوحة بالفعل: <#" + open.channelId + ">", flags: MessageFlags.Ephemeral });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const number = store.nextTicketNumber(guild.id);
+    const username = interaction.user.username.toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 18) || "member";
+    const raw = option.channelNameTemplate.replace(/\{number\}/g, String(number)).replace(/\{username\}/g, username).replace(/\{user\}/g, username);
+    const channelName = raw.toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 90) || "ticket-" + number;
+    const allow = [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.EmbedLinks];
+    const overwrites = [
+      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      { id: interaction.user.id, allow: [...allow, PermissionFlagsBits.AttachFiles] },
+      { id: interaction.client.user.id, allow: [...allow, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.AttachFiles] }
+    ];
+    for (const id of new Set([...option.supportRoleIds, ...config.overrideRoleIds]))
+      if (guild.roles.cache.has(id)) overwrites.push({ id, allow });
+    const createOptions = { name: channelName, type: ChannelType.GuildText, permissionOverwrites: overwrites, reason: "TicketNXT ticket #" + number };
+    const category = option.categoryId && guild.channels.cache.get(option.categoryId);
+    if (category?.type === ChannelType.GuildCategory) createOptions.parent = category.id;
+    const channel = await guild.channels.create(createOptions);
+    const ticket = {
+      guildId: guild.id, channelId: channel.id, userId: interaction.user.id, optionId: option.id,
+      optionLabel: option.label, number, reason: clean(reason, 1000), claimedBy: null,
+      supportRoleIds: [...option.supportRoleIds], overrideRoleIds: [...config.overrideRoleIds],
+      autoCloseMinutes: Number(option.autoCloseMinutes || 0),
+      openedAt: Date.now(), lastActivityAt: Date.now(), closedAt: null
+    };
+    try {
+      store.saveTicket(channel.id, ticket);
+      const embed = new EmbedBuilder().setTitle("تذكرة #" + number + " — " + option.label)
+        .setDescription("أهلاً <@" + interaction.user.id + ">، وصلنا طلبك وسيقوم فريق الدعم بالرد عليك.")
+        .addFields(
+          { name: "صاحب التذكرة", value: "<@" + interaction.user.id + ">", inline: true },
+          { name: "القسم", value: option.label, inline: true },
+          ...(ticket.reason ? [{ name: "سبب فتح التذكرة", value: ticket.reason }] : [])
+        ).setTimestamp();
+      await channel.send({ content: "<@" + interaction.user.id + ">", embeds: [embed], components: ticketRows(), allowedMentions: { users: [interaction.user.id] } });
+    } catch (error) {
+      await channel.delete("TicketNXT cleanup after failed ticket setup").catch(() => {});
+      throw error;
+    }
+    await interaction.editReply({ content: "تم إنشاء تذكرتك: " + channel.toString() });
+  } finally {
+    pendingTicketCreations.delete(lockKey);
+  }
+}
+function serializeTranscriptMessage(m) {
+  return {
+    id: m.id,
+    authorId: m.author?.id || null,
+    authorName: m.member?.displayName || m.author?.globalName || m.author?.username || "مستخدم",
+    avatarUrl: m.author?.displayAvatarURL?.({ extension: "png", size: 64 }) || null,
+    bot: Boolean(m.author?.bot),
+    content: String(m.content || "").slice(0, 10000),
+    timestamp: m.createdTimestamp,
+    attachments: [...(m.attachments?.values?.() || [])].map(a => ({
+      name: clean(a.name || "مرفق", 180),
+      url: /^https:\/\//i.test(a.url || "") ? a.url : null,
+      contentType: clean(a.contentType || "", 100) || null
+    })).filter(a => a.url),
+    embeds: (m.embeds || []).slice(0, 5).map(e => ({
+      title: clean(e.title || "", 250),
+      description: clean(e.description || "", 1500),
+      url: /^https:\/\//i.test(e.url || "") ? e.url : null
+    }))
   };
-  store.saveTicket(channel.id, ticket);
-  const embed = new EmbedBuilder().setTitle("تذكرة #" + number + " — " + option.label)
-    .setDescription("أهلاً <@" + interaction.user.id + ">، وصلنا طلبك وسيقوم فريق الدعم بالرد عليك.")
-    .addFields(
-      { name: "صاحب التذكرة", value: "<@" + interaction.user.id + ">", inline: true },
-      { name: "القسم", value: option.label, inline: true },
-      ...(ticket.reason ? [{ name: "سبب فتح التذكرة", value: ticket.reason }] : [])
-    ).setTimestamp();
-  await channel.send({ content: "<@" + interaction.user.id + ">", embeds: [embed], components: ticketRows(), allowedMentions: { users: [interaction.user.id] } });
-  await interaction.editReply({ content: "تم إنشاء تذكرتك: " + channel.toString() });
 }
 async function captureTranscript(channel, ticket) {
   const messages = [];
   let before;
-  for (let i = 0; i < 10; i++) {
+  const maxMessages = 5000;
+  let pages = 0;
+  while (pages < maxMessages / 100) {
     const page = await channel.messages.fetch({ limit: 100, ...(before ? { before } : {}) });
     if (!page.size) break;
     messages.push(...page.values());
     before = page.last().id;
+    pages++;
     if (page.size < 100) break;
+  }
+  if (messages.length >= maxMessages && before) {
+    const older = await channel.messages.fetch({ limit: 1, before });
+    if (older.size) throw new Error("المحادثة تجاوزت حد الأرشفة الآمن (5000 رسالة). لم نحذف القناة حتى لا نفقد رسائل.");
   }
   messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
   const snapshot = {
-    version: 1,
+    version: 2,
     savedAt: Date.now(),
-    messages: messages.map(m => ({
-      id: m.id,
-      authorId: m.author?.id || null,
-      authorName: m.member?.displayName || m.author?.globalName || m.author?.username || "مستخدم",
-      avatarUrl: m.author?.displayAvatarURL?.({ extension: "png", size: 64 }) || null,
-      bot: Boolean(m.author?.bot),
-      content: String(m.content || "").slice(0, 10000),
-      timestamp: m.createdTimestamp,
-      attachments: [...m.attachments.values()].map(a => ({
-        name: clean(a.name || "مرفق", 180),
-        url: /^https:\/\//i.test(a.url || "") ? a.url : null,
-        contentType: clean(a.contentType || "", 100) || null
-      })).filter(a => a.url),
-      embeds: (m.embeds || []).slice(0, 5).map(e => ({
-        title: clean(e.title || "", 250),
-        description: clean(e.description || "", 1500),
-        url: /^https:\/\//i.test(e.url || "") ? e.url : null
-      }))
-    }))
+    complete: true,
+    messages: messages.map(serializeTranscriptMessage)
   };
-  store.updateTicket(channel.id, { transcript: snapshot });
+  const saved = store.updateTicket(channel.id, { transcript: snapshot });
+  if (!saved) throw new Error("تعذر حفظ نسخة المحادثة في التخزين الدائم.");
   return snapshot;
 }
 async function closeTicket(channel, ticket, actorId, automatic = false) {
   const key = channel.id;
-  if (activeClosures.has(key)) throw new Error("إغلاق التذكرة قيد التنفيذ بالفعل.");
+  if (activeClosures.has(key)) return { closed: false, inProgress: true };
   activeClosures.add(key);
   try {
     let current = store.getTicket(channel.id) || ticket;
@@ -439,8 +466,11 @@ async function handleInteraction(interaction) {
   if (interaction.customId === "tnxt:close") {
     if (!staff) return interaction.reply({ content: "إغلاق التذكرة مخصص للإداريين وفريق الدعم.", flags: MessageFlags.Ephemeral });
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    await closeTicket(interaction.channel, ticket, interaction.user.id);
-    return interaction.editReply({ content: "تم إغلاق التكت وحفظ المحادثة في أرشيف لوحة TicketNXT." });
+    const result = await closeTicket(interaction.channel, ticket, interaction.user.id);
+    const reply = result?.inProgress
+      ? "إغلاق التذكرة قيد التنفيذ بالفعل، انتظر حتى يكتمل."
+      : "تم إغلاق التكت وحفظ المحادثة في أرشيف لوحة TicketNXT.";
+    return interaction.editReply({ content: reply }).catch(() => null);
   }
   if (!staff) return interaction.reply({ content: "هذا الإجراء مخصص لفريق الدعم.", flags: MessageFlags.Ephemeral });
   if (interaction.customId === "tnxt:claim") {
@@ -474,12 +504,31 @@ async function handleInteraction(interaction) {
     return interaction.showModal(modal);
   }
 }
+async function requireManagedGuild(req, res, client) {
+  const id = String(req.session.selectedGuildId || "");
+  if (!id) {
+    res.status(403).json({ error: "guild_not_selected" });
+    return null;
+  }
+  try {
+    const guild = await client.guilds.fetch(id);
+    const member = await guild.members.fetch(req.session.discordUser.id);
+    if (member.id !== guild.ownerId && !manager(member)) {
+      res.status(403).json({ error: "manage_guild_required" });
+      return null;
+    }
+    return guild;
+  } catch {
+    res.status(403).json({ error: "guild_access_revoked" });
+    return null;
+  }
+}
 function registerTicketSystem(app, client, requireLogin) {
   app.get("/api/ticket/meta", requireLogin, async (req, res) => {
     try {
-      const id = req.session.selectedGuildId;
-      if (!id || !(req.session.manageableGuilds || []).some(g => g.id === id)) return res.status(403).json({ error: "guild_not_selected" });
-      const guild = await client.guilds.fetch(id);
+      const guild = await requireManagedGuild(req, res, client);
+      if (!guild) return;
+      const id = guild.id;
       await Promise.all([guild.roles.fetch(), guild.channels.fetch()]);
       await guild.emojis.fetch().catch(() => null);
       const config = configFor(id);
@@ -495,11 +544,9 @@ function registerTicketSystem(app, client, requireLogin) {
   });
   app.get("/api/ticket/transcripts", requireLogin, async (req, res) => {
     try {
-      const id = req.session.selectedGuildId;
-      if (!id || !(req.session.manageableGuilds || []).some(g => g.id === id)) return res.status(403).json({ error: "guild_not_selected" });
-      const guild = await client.guilds.fetch(id);
-      const member = await guild.members.fetch(req.session.discordUser.id);
-      if (!manager(member)) return res.status(403).json({ error: "manage_guild_required" });
+      const guild = await requireManagedGuild(req, res, client);
+      if (!guild) return;
+      const id = guild.id;
       const tickets = Object.values(store.readState().tickets)
         .filter(ticket => ticket.guildId === id && ticket.transcript && Array.isArray(ticket.transcript.messages))
         .sort((a, b) => Number(b.closedAt || b.transcript.savedAt || 0) - Number(a.closedAt || a.transcript.savedAt || 0))
@@ -513,6 +560,7 @@ function registerTicketSystem(app, client, requireLogin) {
           closedAt: ticket.closedAt || null,
           closedBy: ticket.closedBy || null,
           messageCount: ticket.transcript.messages.length,
+          transcriptComplete: ticket.transcript.complete !== false,
           savedAt: ticket.transcript.savedAt || null
         }));
       res.json({ ok: true, transcripts: tickets });
@@ -523,11 +571,9 @@ function registerTicketSystem(app, client, requireLogin) {
   });
   app.get("/api/ticket/transcripts/:channelId", requireLogin, async (req, res) => {
     try {
-      const id = req.session.selectedGuildId;
-      if (!id || !(req.session.manageableGuilds || []).some(g => g.id === id)) return res.status(403).json({ error: "guild_not_selected" });
-      const guild = await client.guilds.fetch(id);
-      const member = await guild.members.fetch(req.session.discordUser.id);
-      if (!manager(member)) return res.status(403).json({ error: "manage_guild_required" });
+      const guild = await requireManagedGuild(req, res, client);
+      if (!guild) return;
+      const id = guild.id;
       const ticket = store.getTicket(String(req.params.channelId));
       if (!ticket || ticket.guildId !== id || !ticket.transcript || !Array.isArray(ticket.transcript.messages)) {
         return res.status(404).json({ error: "transcript_not_found" });
@@ -543,7 +589,8 @@ function registerTicketSystem(app, client, requireLogin) {
           openedAt: ticket.openedAt || null,
           closedAt: ticket.closedAt || null,
           closedBy: ticket.closedBy || null,
-          savedAt: ticket.transcript.savedAt || null
+          savedAt: ticket.transcript.savedAt || null,
+          transcriptComplete: ticket.transcript.complete !== false
         },
         messages: ticket.transcript.messages
       });
@@ -554,12 +601,10 @@ function registerTicketSystem(app, client, requireLogin) {
   });
   app.put("/api/ticket/config", requireLogin, async (req, res) => {
     try {
-      const id = req.session.selectedGuildId;
-      if (!id || !(req.session.manageableGuilds || []).some(g => g.id === id)) return res.status(403).json({ error: "guild_not_selected" });
-      const guild = await client.guilds.fetch(id);
+      const guild = await requireManagedGuild(req, res, client);
+      if (!guild) return;
+      const id = guild.id;
       await Promise.all([guild.roles.fetch(), guild.channels.fetch(), guild.members.fetchMe(), guild.emojis.fetch()]);
-      const member = await guild.members.fetch(req.session.discordUser.id);
-      if (!manager(member)) return res.status(403).json({ error: "manage_guild_required" });
       const previous = configFor(id);
       const normalized = validateConfig(req.body, guild);
       normalized.panelChannelId = previous.panelChannelId;
@@ -571,11 +616,9 @@ function registerTicketSystem(app, client, requireLogin) {
   });
   app.post("/api/ticket/publish", requireLogin, async (req, res) => {
     try {
-      const id = req.session.selectedGuildId;
-      if (!id || !(req.session.manageableGuilds || []).some(g => g.id === id)) return res.status(403).json({ error: "guild_not_selected" });
-      const guild = await client.guilds.fetch(id);
-      const member = await guild.members.fetch(req.session.discordUser.id);
-      if (!manager(member)) return res.status(403).json({ error: "manage_guild_required" });
+      const guild = await requireManagedGuild(req, res, client);
+      if (!guild) return;
+      const id = guild.id;
       const channel = await guild.channels.fetch(String(req.body.channelId || ""));
       if (!channel || channel.type !== ChannelType.GuildText) return res.status(400).json({ error: "invalid_channel" });
       const perms = channel.permissionsFor(client.user);
@@ -608,8 +651,27 @@ function registerTicketSystem(app, client, requireLogin) {
     if (ticket && !ticket.closedAt) store.updateTicket(message.channelId, { lastActivityAt: Date.now() });
   });
   client.on(Events.ChannelDelete, channel => {
-    const ticket = store.getTicket(channel.id);
-    if (ticket && !ticket.closedAt) store.updateTicket(channel.id, { closedAt: Date.now(), closedBy: "channel-deleted" });
+    try {
+      const ticket = store.getTicket(channel.id);
+      if (!ticket || ticket.closedAt) return;
+      if (ticket.transcript?.messages) {
+        store.updateTicket(channel.id, { closedAt: Date.now(), closedBy: ticket.closingBy || "system" });
+        return;
+      }
+      const cached = [...(channel.messages?.cache?.values?.() || [])]
+        .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+        .map(serializeTranscriptMessage);
+      const snapshot = {
+        version: 2, savedAt: Date.now(), complete: false,
+        warning: "تم حذف القناة خارج إجراء إغلاق TicketNXT؛ هذه نسخة من الرسائل التي كانت متاحة في ذاكرة البوت فقط وقد لا تشمل كامل المحادثة.",
+        messages: cached
+      };
+      store.updateTicket(channel.id, {
+        transcript: snapshot, closedAt: Date.now(), closedBy: "channel-deleted"
+      });
+    } catch (error) {
+      console.error("Could not preserve deleted ticket cache:", error);
+    }
   });
   const timer = setInterval(async () => {
     try {
