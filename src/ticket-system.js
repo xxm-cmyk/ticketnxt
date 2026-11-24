@@ -590,7 +590,8 @@ function registerTicketSystem(app, client, requireLogin) {
           closedAt: ticket.closedAt || null,
           closedBy: ticket.closedBy || null,
           savedAt: ticket.transcript.savedAt || null,
-          transcriptComplete: ticket.transcript.complete !== false
+          transcriptComplete: ticket.transcript.complete !== false,
+          transcriptWarning: ticket.transcript.warning || null
         },
         messages: ticket.transcript.messages
       });
